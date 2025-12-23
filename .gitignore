@@ -1,0 +1,15 @@
+node_modules/
+.local-storage/
+dist/
+*.log
+.DS_Store
+.env
+.env.local
+# Dev interface is fine to commit
+# public/dev.html
+# Local server logs
+/tmp/local-server.log
+# SQLite database files
+*.db
+*.db-shm
+*.db-wal

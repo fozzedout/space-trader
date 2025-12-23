@@ -1,0 +1,2646 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="theme-color" content="#0b1016" media="(prefers-color-scheme: dark)">
+    <meta name="theme-color" content="#0b1016">
+    <title>Space Trader - Elite Mode</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        :root {
+            color-scheme: light dark;
+        }
+        [data-theme="light"] {
+            color-scheme: light;
+            --bg-dark: #f5f7fb;
+            --bg-panel: #ffffff;
+            --bg-hover: #eef2f7;
+            --bg-elev: #ffffff;
+            --text-primary: #0f1724;
+            --text-secondary: #1f2a3a;
+            --text-dim: #64748b;
+            --accent: #2563eb;
+            --accent-strong: #1d4ed8;
+            --accent-hover: #3b82f6;
+            --warning: #f59e0b;
+            --danger: #dc2626;
+            --border: #d7dee8;
+            --glow: rgba(37, 99, 235, 0.25);
+        }
+        html, body {
+            background: #0b1016;
+            height: 100%;
+        }
+        :root {
+            --bg-dark: #0b1016;
+            --bg-panel: #0f1724;
+            --bg-hover: #162131;
+            --bg-elev: #121a24;
+            --text-primary: #e2e8f0;
+            --text-secondary: #93a4b7;
+            --text-dim: #64748b;
+            --accent: #2dd4bf;
+            --accent-strong: #10b981;
+            --accent-hover: #5eead4;
+            --warning: #f59e0b;
+            --danger: #f87171;
+            --border: #1f2a3a;
+            --glow: rgba(45, 212, 191, 0.3);
+        }
+        body {
+            font-family: "Space Mono", "IBM Plex Mono", "JetBrains Mono", "Menlo", "Consolas", monospace;
+            background:
+                radial-gradient(circle at top, rgba(45, 212, 191, 0.08), transparent 45%),
+                radial-gradient(circle at 20% 20%, rgba(96, 165, 250, 0.12), transparent 35%),
+                linear-gradient(135deg, #0b1016 0%, #0f1724 50%, #0b1016 100%);
+            background-color: #0b1016;
+            color: var(--text-primary);
+            overflow-x: hidden;
+            -webkit-tap-highlight-color: transparent;
+            touch-action: manipulation;
+            min-height: 100vh;
+            height: 100%;
+            overflow: hidden;
+            padding-top: env(safe-area-inset-top);
+            padding-bottom: env(safe-area-inset-bottom);
+        }
+        body::before {
+            content: "";
+            position: fixed;
+            inset: 0;
+            background: #0b1016;
+            z-index: -1;
+        }
+        [data-theme="light"] body {
+            background:
+                radial-gradient(circle at top, rgba(37, 99, 235, 0.08), transparent 45%),
+                radial-gradient(circle at 20% 20%, rgba(14, 165, 233, 0.08), transparent 35%),
+                linear-gradient(135deg, #f5f7fb 0%, #ffffff 50%, #f0f4f8 100%);
+            background-color: #f5f7fb;
+        }
+        [data-theme="light"] body::before {
+            background: #f5f7fb;
+        }
+        .container {
+            max-width: 100%;
+            margin: 0 auto;
+            padding: 0;
+            height: calc(100vh - env(safe-area-inset-top) - env(safe-area-inset-bottom));
+            display: flex;
+            flex-direction: column;
+        }
+        .header {
+            background: var(--bg-panel);
+            border-bottom: 1px solid var(--border);
+            padding: 10px 15px;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            backdrop-filter: blur(8px);
+        }
+        .header h1 {
+            font-size: 18px;
+            color: var(--text-primary);
+            text-shadow: 0 0 16px rgba(45, 212, 191, 0.35);
+            margin: 0;
+            letter-spacing: 1px;
+        }
+        .status-bar {
+            display: flex;
+            gap: 15px;
+            font-size: 12px;
+            flex-wrap: wrap;
+        }
+        .status-item {
+            color: var(--text-secondary);
+            padding: 4px 10px;
+            border: 1px solid var(--border);
+            border-radius: 999px;
+            background: var(--bg-elev);
+        }
+        .status-value {
+            color: var(--text-primary);
+            font-weight: bold;
+        }
+        .refresh-toggle {
+            padding: 6px 10px;
+            border-radius: 999px;
+            border: 1px solid var(--border);
+            background: var(--bg-elev);
+            color: var(--text-dim);
+            font-family: inherit;
+            font-size: 11px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .refresh-toggle.active {
+            color: var(--text-primary);
+            border-color: var(--accent);
+            box-shadow: 0 0 10px rgba(70, 217, 255, 0.2);
+        }
+        .refresh-toggle:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+        .refresh-toggle:focus-visible {
+            outline: 2px solid var(--accent);
+            outline-offset: 2px;
+        }
+        .nav-tabs {
+            display: flex;
+            background: var(--bg-panel);
+            border-bottom: 1px solid var(--border);
+            overflow-x: auto;
+            -webkit-overflow-scrolling: touch;
+            gap: 6px;
+            padding: 8px 10px;
+        }
+        .nav-tab {
+            flex: 1;
+            min-width: 100px;
+            padding: 10px 12px;
+            background: var(--bg-panel);
+            border: 1px solid var(--border);
+            border-radius: 999px;
+            color: var(--text-dim);
+            font-family: inherit;
+            font-size: 14px;
+            cursor: pointer;
+            text-align: center;
+            transition: all 0.2s;
+            white-space: nowrap;
+            position: relative;
+        }
+        .nav-tab.active {
+            color: var(--text-primary);
+            border-color: var(--accent);
+            background: linear-gradient(135deg, rgba(45, 212, 191, 0.12), rgba(45, 212, 191, 0));
+            box-shadow: 0 0 12px rgba(45, 212, 191, 0.18);
+        }
+        .nav-tab:active {
+            background: var(--bg-hover);
+        }
+        .nav-tab:focus-visible {
+            outline: 2px solid var(--accent);
+            outline-offset: 2px;
+        }
+        .view {
+            display: none;
+            padding: 15px;
+            flex: 1;
+            overflow: hidden;
+        }
+        .view.scrollable {
+            overflow-y: auto;
+            -webkit-overflow-scrolling: touch;
+        }
+        .view.active {
+            display: block;
+            animation: viewFade 0.35s ease;
+        }
+        .view-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 15px;
+            height: 100%;
+        }
+        .subtabs {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 12px;
+        }
+        .subtab {
+            padding: 8px 12px;
+            border-radius: 999px;
+            border: 1px solid var(--border);
+            background: var(--bg-panel);
+            color: var(--text-dim);
+            font-family: inherit;
+            font-size: 12px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .subtab.active {
+            color: var(--text-primary);
+            border-color: var(--accent);
+            background: linear-gradient(135deg, rgba(45, 212, 191, 0.12), rgba(45, 212, 191, 0));
+            box-shadow: 0 0 10px rgba(45, 212, 191, 0.18);
+        }
+        .subview {
+            display: none;
+            height: 100%;
+        }
+        .subview.active {
+            display: block;
+        }
+        .panel.scrollable {
+            display: flex;
+            flex-direction: column;
+            height: 100%;
+        }
+        .panel-scroll {
+            overflow: auto;
+            flex: 1;
+            min-height: 0;
+        }
+        .panel {
+            background: var(--bg-panel);
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            padding: 15px;
+            margin-bottom: 15px;
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+        }
+        .view-grid .panel {
+            margin-bottom: 0;
+        }
+        .panel.span-2 {
+            grid-column: span 2;
+        }
+        .panel-title {
+            color: var(--accent);
+            font-size: 16px;
+            margin-bottom: 10px;
+            border-bottom: 1px solid var(--border);
+            padding-bottom: 5px;
+            letter-spacing: 0.6px;
+        }
+        .info-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 10px;
+            margin-bottom: 10px;
+        }
+        .info-item {
+            display: flex;
+            flex-direction: column;
+        }
+        .info-label {
+            color: var(--text-dim);
+            font-size: 11px;
+            text-transform: uppercase;
+            margin-bottom: 3px;
+        }
+        .info-value {
+            color: var(--text-primary);
+            font-size: 14px;
+            font-weight: bold;
+        }
+        .market-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 12px;
+            background: var(--bg-dark);
+            border-radius: 6px;
+            overflow: hidden;
+        }
+        .market-table th {
+            background: var(--bg-hover);
+            color: var(--text-primary);
+            padding: 8px;
+            text-align: left;
+            border-bottom: 2px solid var(--border);
+            position: sticky;
+            top: 0;
+        }
+        .market-table td {
+            padding: 10px 8px;
+            border-bottom: 1px solid var(--border);
+        }
+        .market-table tr:active {
+            background: var(--bg-hover);
+        }
+        .market-table tr:hover {
+            background: rgba(45, 212, 191, 0.08);
+        }
+        .price {
+            color: var(--text-primary);
+            font-weight: bold;
+        }
+        .price-high {
+            color: var(--danger);
+        }
+        .price-low {
+            color: var(--text-secondary);
+        }
+        .btn {
+            padding: 10px 20px;
+            background: var(--accent);
+            color: var(--bg-dark);
+            border: none;
+            border-radius: 4px;
+            font-family: inherit;
+            font-size: 14px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.2s;
+            width: 100%;
+            margin-top: 10px;
+            touch-action: manipulation;
+            box-shadow: 0 10px 18px rgba(0, 0, 0, 0.25);
+        }
+        .btn:active {
+            background: var(--accent-hover);
+            transform: scale(0.98);
+        }
+        .btn:focus-visible {
+            outline: 2px solid var(--accent);
+            outline-offset: 2px;
+        }
+        .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        .btn-danger {
+            background: var(--danger);
+        }
+        .btn-danger:active {
+            background: #ff6666;
+        }
+        .btn-success {
+            background: var(--text-secondary);
+            color: var(--bg-dark);
+        }
+        .btn-success:active {
+            background: var(--text-primary);
+        }
+        .input-group {
+            margin-bottom: 15px;
+        }
+        .input-group label {
+            display: block;
+            color: var(--text-dim);
+            font-size: 12px;
+            margin-bottom: 5px;
+        }
+        .input-group input,
+        .input-group select {
+            width: 100%;
+            padding: 10px;
+            background: var(--bg-dark);
+            border: 1px solid var(--border);
+            color: var(--text-primary);
+            font-family: inherit;
+            font-size: 14px;
+            border-radius: 4px;
+        }
+        .input-group input:focus,
+        .input-group select:focus {
+            outline: none;
+            border-color: var(--accent);
+            box-shadow: 0 0 0 2px rgba(45, 212, 191, 0.2);
+        }
+        .qty-controls {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+        .qty-display {
+            min-width: 48px;
+            padding: 8px 10px;
+            border-radius: 6px;
+            border: 1px solid var(--border);
+            background: var(--bg-dark);
+            color: var(--text-primary);
+            font-weight: bold;
+            text-align: center;
+        }
+        .qty-btn {
+            padding: 8px 10px;
+            border-radius: 6px;
+            border: 1px solid var(--border);
+            background: var(--bg-panel);
+            color: var(--text-secondary);
+            font-family: inherit;
+            font-size: 12px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .qty-btn.muted {
+            color: var(--text-dim);
+        }
+        .qty-btn.accent {
+            color: var(--accent);
+            border-color: rgba(45, 212, 191, 0.6);
+        }
+        .qty-btn:active {
+            background: var(--bg-hover);
+        }
+        .cargo-list {
+            list-style: none;
+        }
+        .cargo-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px;
+            border-bottom: 1px solid var(--border);
+        }
+        .cargo-item:last-child {
+            border-bottom: none;
+        }
+        .flight-status {
+            text-align: center;
+            padding: 20px;
+        }
+        .flight-status h2 {
+            color: var(--accent);
+            margin-bottom: 15px;
+        }
+        .flight-console {
+            margin-top: 16px;
+            text-align: left;
+            background: var(--bg-dark);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 10px;
+            min-height: 120px;
+            max-height: 180px;
+            overflow-y: auto;
+            font-size: 12px;
+            color: var(--text-secondary);
+        }
+        .flight-console-line {
+            display: flex;
+            gap: 8px;
+            line-height: 1.4;
+        }
+        .flight-console-prefix {
+            color: var(--accent);
+            flex: 0 0 auto;
+        }
+        .progress-bar {
+            width: 100%;
+            height: 30px;
+            background: var(--bg-dark);
+            border: 2px solid var(--border);
+            border-radius: 4px;
+            overflow: hidden;
+            margin: 15px 0;
+        }
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, var(--accent), var(--text-secondary));
+            transition: width 0.3s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--bg-dark);
+            font-weight: bold;
+            font-size: 12px;
+        }
+        .progress-fill.animating {
+            animation: pulseProgress 1.6s ease-in-out infinite;
+        }
+        .flight-map {
+            position: relative;
+            width: 100%;
+            height: 200px;
+            background: var(--bg-dark);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        .flight-map svg {
+            width: 100%;
+            height: 100%;
+            display: block;
+        }
+        .flight-map-tooltip {
+            position: absolute;
+            background: rgba(8, 15, 24, 0.95);
+            border: 1px solid rgba(45, 212, 191, 0.5);
+            padding: 8px;
+            border-radius: 8px;
+            color: var(--text-primary);
+            font-size: 11px;
+            pointer-events: none;
+            display: none;
+            z-index: 2;
+            white-space: pre-line;
+            max-width: 200px;
+        }
+        .flight-destination {
+            margin-top: 10px;
+            font-size: 12px;
+            color: var(--text-secondary);
+        }
+        .flight-destination span {
+            color: var(--text-primary);
+            font-weight: bold;
+        }
+        .message {
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 4px;
+            font-size: 12px;
+        }
+        .message-success {
+            background: rgba(0, 255, 0, 0.1);
+            border: 1px solid var(--text-secondary);
+            color: var(--text-secondary);
+        }
+        .message-error {
+            background: rgba(255, 68, 68, 0.1);
+            border: 1px solid var(--danger);
+            color: var(--danger);
+        }
+        .message-info {
+            background: rgba(0, 170, 255, 0.1);
+            border: 1px solid var(--accent);
+            color: var(--accent);
+        }
+        .loading {
+            text-align: center;
+            padding: 20px;
+            color: var(--text-dim);
+        }
+        .btn-group {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+        }
+        .banner {
+            margin: 10px 15px;
+            padding: 10px 12px;
+            border-radius: 6px;
+            font-size: 12px;
+            border: 1px solid var(--border);
+            background: var(--bg-elev);
+        }
+        .banner-info {
+            border-color: var(--accent);
+            color: var(--accent);
+            box-shadow: 0 0 12px rgba(45, 212, 191, 0.12);
+        }
+        .banner-success {
+            border-color: var(--text-secondary);
+            color: var(--text-secondary);
+            box-shadow: 0 0 12px rgba(105, 240, 161, 0.12);
+        }
+        .banner-error {
+            border-color: var(--danger);
+            color: var(--danger);
+        }
+        .trade-meta {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+            gap: 8px;
+            margin: 10px 0 14px;
+        }
+        .trade-pill {
+            padding: 6px 8px;
+            border-radius: 8px;
+            border: 1px solid var(--border);
+            background: var(--bg-elev);
+            color: var(--text-dim);
+            font-size: 11px;
+        }
+        .trade-pill span {
+            color: var(--text-primary);
+            font-weight: bold;
+        }
+        .trade-status {
+            margin-top: 8px;
+            font-size: 12px;
+            color: var(--text-dim);
+        }
+        .trade-status.pending {
+            color: var(--warning);
+        }
+        .trade-status.success {
+            color: var(--text-secondary);
+        }
+        .trade-status.error {
+            color: var(--danger);
+        }
+        .trade-status.warn {
+            color: var(--warning);
+        }
+        @keyframes viewFade {
+            from {
+                opacity: 0;
+                transform: translateY(6px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+        @keyframes pulseProgress {
+            0% {
+                filter: brightness(0.9);
+            }
+            50% {
+                filter: brightness(1.2);
+            }
+            100% {
+                filter: brightness(0.9);
+            }
+        }
+        @media (max-width: 480px) {
+            .header h1 {
+                font-size: 16px;
+            }
+            .status-bar {
+                font-size: 11px;
+                gap: 10px;
+            }
+            .nav-tab {
+                font-size: 12px;
+                padding: 10px 12px;
+            }
+            .panel {
+                padding: 12px;
+            }
+            .market-table {
+                font-size: 11px;
+            }
+            .market-table th,
+            .market-table td {
+                padding: 6px 4px;
+            }
+        }
+        @media (max-width: 900px) {
+            .view-grid {
+                grid-template-columns: 1fr;
+            }
+            .panel.span-2 {
+                grid-column: span 1;
+            }
+        }
+        .hidden {
+            display: none !important;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>⚡ SPACE TRADER</h1>
+            <div class="status-bar">
+                <div class="status-item">
+                    Credits: <span class="status-value" id="credits">0</span>
+                </div>
+                <div class="status-item">
+                    System: <span class="status-value" id="currentSystem">-</span>
+                </div>
+                <div class="status-item">
+                    Phase: <span class="status-value" id="phase">-</span>
+                </div>
+                <button class="refresh-toggle" id="loadGameButton" onclick="loadGame()">Load</button>
+                <button class="refresh-toggle" id="saveGameButton" onclick="saveGame()">Save</button>
+            </div>
+        </div>
+
+        <div id="playerBanner" class="banner banner-info hidden"></div>
+
+        <div class="nav-tabs">
+            <button class="nav-tab active" data-view="system">STATION</button>
+            <button class="nav-tab" data-view="flight">FLIGHT</button>
+            <button class="nav-tab" data-view="trading">TRADING</button>
+            <button class="nav-tab" data-view="garage">GARAGE</button>
+        </div>
+
+        <!-- System View -->
+        <div id="view-system" class="view active">
+            <div class="subtabs">
+                <button class="subtab active" data-subview="system-info">SYSTEM</button>
+                <button class="subtab" data-subview="system-market">MARKET</button>
+                <button class="subtab" data-subview="system-cargo">CARGO</button>
+            </div>
+            <div class="subview active" id="system-info">
+                <div class="panel">
+                    <div class="panel-title">📍 CURRENT SYSTEM</div>
+                    <div class="info-grid" id="systemInfo">
+                        <div class="info-item">
+                            <div class="info-label">System ID</div>
+                            <div class="info-value" id="sysId">-</div>
+                        </div>
+                        <div class="info-item">
+                            <div class="info-label">Population</div>
+                            <div class="info-value" id="sysPopulation">-</div>
+                        </div>
+                        <div class="info-item">
+                            <div class="info-label">Tech Level</div>
+                            <div class="info-value" id="sysTech">-</div>
+                        </div>
+                        <div class="info-item">
+                            <div class="info-label">Government</div>
+                            <div class="info-value" id="sysGov">-</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="subview" id="system-market">
+                <div class="panel scrollable">
+                    <div class="panel-title">🛒 MARKET</div>
+                    <div class="panel-scroll">
+                        <div id="marketLoading" class="loading">Loading market data...</div>
+                        <table class="market-table hidden" id="marketTable">
+                            <thead>
+                                <tr>
+                                    <th>Good</th>
+                                    <th>Price</th>
+                                    <th>Stock</th>
+                                </tr>
+                            </thead>
+                            <tbody id="marketBody"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <div class="subview" id="system-cargo">
+                <div class="panel scrollable">
+                    <div class="panel-title">📦 CARGO</div>
+                    <div class="panel-scroll" id="cargoList">
+                        <div class="loading">No cargo</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Flight View -->
+        <div id="view-flight" class="view">
+            <div class="subtabs">
+                <button class="subtab active" data-subview="flight-status-panel">STATUS</button>
+                <button class="subtab" data-subview="flight-destination-panel">DESTINATION</button>
+            </div>
+            <div class="subview active" id="flight-status-panel">
+                <div class="panel">
+                    <div class="panel-title">🚀 FLIGHT STATUS</div>
+                    <div class="flight-status" id="flightStatus">
+                        <div class="loading">Loading flight status...</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="subview" id="flight-destination-panel">
+                <div class="panel">
+                    <div class="panel-title">🎯 SELECT DESTINATION</div>
+                    <div class="flight-map" id="flightMap">
+                        <svg id="flightMapSvg"></svg>
+                        <div id="flightMapTooltip" class="flight-map-tooltip"></div>
+                    </div>
+                    <div class="flight-destination">Selected: <span id="selectedDestination">None</span></div>
+                    <button class="btn" id="btnTravel" onclick="initiateTravel()">LAUNCH</button>
+                    <div id="travelMessage"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Trading View -->
+        <div id="view-trading" class="view">
+            <div class="subtabs">
+                <button class="subtab active" data-subview="trading-buy">BUY</button>
+                <button class="subtab" data-subview="trading-sell">SELL</button>
+            </div>
+            <div class="subview active" id="trading-buy">
+            <div class="panel">
+                <div class="panel-title">💰 BUY GOODS</div>
+                <div class="trade-meta">
+                    <div class="trade-pill">Credits <span id="tradeCreditsBuy">0</span></div>
+                    <div class="trade-pill">Cargo <span id="tradeCargoBuy">0/100</span></div>
+                    <div class="trade-pill">Stock <span id="buyStock">-</span></div>
+                    <div class="trade-pill">Max Buy <span id="buyMax">-</span></div>
+                </div>
+                <div class="input-group">
+                    <label>Good</label>
+                    <select id="buyGood"></select>
+                </div>
+                <div class="input-group">
+                    <label>Quantity</label>
+                    <div class="qty-controls">
+                        <div class="qty-display" id="buyQtyDisplay">1</div>
+                        <button class="qty-btn muted" data-qty="-10" data-target="buy">-10</button>
+                        <button class="qty-btn muted" data-qty="-5" data-target="buy">-5</button>
+                        <button class="qty-btn muted" data-qty="-1" data-target="buy">-1</button>
+                        <button class="qty-btn" data-qty="1" data-target="buy">+1</button>
+                        <button class="qty-btn" data-qty="5" data-target="buy">+5</button>
+                        <button class="qty-btn" data-qty="10" data-target="buy">+10</button>
+                        <button class="qty-btn muted" data-action="clear" data-target="buy">Clear</button>
+                        <button class="qty-btn accent" data-action="max" data-target="buy">Max</button>
+                    </div>
+                </div>
+                <div class="info-item" style="margin-bottom: 10px;">
+                    <div class="info-label">Total Cost</div>
+                    <div class="info-value" id="buyTotal">0 cr</div>
+                </div>
+                <button class="btn btn-success" onclick="buyGoods()">BUY</button>
+                <div class="trade-status" id="buyStatus">Ready.</div>
+                <div id="buyMessage"></div>
+            </div>
+            </div>
+
+            <div class="subview" id="trading-sell">
+            <div class="panel">
+                <div class="panel-title">💸 SELL GOODS</div>
+                <div class="trade-meta">
+                    <div class="trade-pill">Credits <span id="tradeCreditsSell">0</span></div>
+                    <div class="trade-pill">Cargo <span id="tradeCargoSell">0/100</span></div>
+                    <div class="trade-pill">Owned <span id="sellCargoQty">-</span></div>
+                    <div class="trade-pill">Max Sell <span id="sellMax">-</span></div>
+                </div>
+                <div class="input-group">
+                    <label>Good</label>
+                    <select id="sellGood"></select>
+                </div>
+                <div class="input-group">
+                    <label>Quantity</label>
+                    <div class="qty-controls">
+                        <div class="qty-display" id="sellQtyDisplay">1</div>
+                        <button class="qty-btn muted" data-qty="-10" data-target="sell">-10</button>
+                        <button class="qty-btn muted" data-qty="-5" data-target="sell">-5</button>
+                        <button class="qty-btn muted" data-qty="-1" data-target="sell">-1</button>
+                        <button class="qty-btn" data-qty="1" data-target="sell">+1</button>
+                        <button class="qty-btn" data-qty="5" data-target="sell">+5</button>
+                        <button class="qty-btn" data-qty="10" data-target="sell">+10</button>
+                        <button class="qty-btn muted" data-action="clear" data-target="sell">Clear</button>
+                        <button class="qty-btn accent" data-action="max" data-target="sell">Max</button>
+                    </div>
+                </div>
+                <div class="info-item" style="margin-bottom: 10px;">
+                    <div class="info-label">Total Value</div>
+                    <div class="info-value" id="sellTotal">0 cr</div>
+                </div>
+                <button class="btn btn-danger" onclick="sellGoods()">SELL</button>
+                <div class="trade-status" id="sellStatus">Ready.</div>
+                <div id="sellMessage"></div>
+            </div>
+            </div>
+        </div>
+
+        <!-- Garage View -->
+        <div id="view-garage" class="view scrollable">
+            <div class="panel">
+                <div class="panel-title">🛠 GARAGE</div>
+                <div id="garageStatus" class="banner banner-info hidden"></div>
+                <div class="info-grid">
+                    <div class="info-item">
+                        <div class="info-label">Hull</div>
+                        <div class="info-value" id="garageHullStatus">-</div>
+                    </div>
+                    <div class="info-item">
+                        <div class="info-label">Fuel</div>
+                        <div class="info-value" id="garageFuelStatus">-</div>
+                    </div>
+                    <div class="info-item">
+                        <div class="info-label">Tax</div>
+                        <div class="info-value" id="garageTaxStatus">-</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="panel">
+                <div class="panel-title">⛽ REFUEL</div>
+                <div class="info-grid">
+                    <div class="info-item">
+                        <div class="info-label">Current Fuel</div>
+                        <div class="info-value" id="fuelCurrent">-</div>
+                    </div>
+                    <div class="info-item">
+                        <div class="info-label">Capacity</div>
+                        <div class="info-value" id="fuelCapacity">-</div>
+                    </div>
+                    <div class="info-item">
+                        <div class="info-label">Refuel Cost</div>
+                        <div class="info-value" id="fuelCost">-</div>
+                    </div>
+                </div>
+                <button class="btn" id="btnRefuel" onclick="purchaseFuel()">Refuel</button>
+                <div class="trade-status" id="fuelStatus">Ready.</div>
+            </div>
+
+            <div class="panel">
+                <div class="panel-title">🧰 REPAIRS</div>
+                <div class="info-grid">
+                    <div class="info-item">
+                        <div class="info-label">Hull Integrity</div>
+                        <div class="info-value" id="hullIntegrity">-</div>
+                    </div>
+                    <div class="info-item">
+                        <div class="info-label">Repair Cost</div>
+                        <div class="info-value" id="repairCost">-</div>
+                    </div>
+                </div>
+                <div class="input-group">
+                    <label>Repair Points</label>
+                    <input id="repairPoints" type="number" min="1" value="10">
+                </div>
+                <button class="btn" id="btnRepairHull" onclick="repairHull()">Repair Hull</button>
+                <div class="trade-status" id="repairStatus">Ready.</div>
+            </div>
+
+            <div class="panel">
+                <div class="panel-title">🔧 ARMAMENTS</div>
+                <div class="info-grid">
+                    <div class="info-item">
+                        <div class="info-label">Front Laser</div>
+                        <div class="info-value" id="laserFront">-</div>
+                    </div>
+                    <div class="info-item">
+                        <div class="info-label">Rear Laser</div>
+                        <div class="info-value" id="laserRear">-</div>
+                    </div>
+                    <div class="info-item">
+                        <div class="info-label">Left Laser</div>
+                        <div class="info-value" id="laserLeft">-</div>
+                    </div>
+                    <div class="info-item">
+                        <div class="info-label">Right Laser</div>
+                        <div class="info-value" id="laserRight">-</div>
+                    </div>
+                    <div class="info-item">
+                        <div class="info-label">Missiles</div>
+                        <div class="info-value" id="missileCount">-</div>
+                    </div>
+                    <div class="info-item">
+                        <div class="info-label">ECM</div>
+                        <div class="info-value" id="ecmStatus">-</div>
+                    </div>
+                    <div class="info-item">
+                        <div class="info-label">Energy Bomb</div>
+                        <div class="info-value" id="energyBombStatus">-</div>
+                    </div>
+                </div>
+
+                <div class="input-group">
+                    <label>Laser Mount</label>
+                    <select id="laserMountSelect">
+                        <option value="front">Front</option>
+                        <option value="rear">Rear</option>
+                        <option value="left">Left</option>
+                        <option value="right">Right</option>
+                    </select>
+                </div>
+                <div class="input-group">
+                    <label>Laser Type</label>
+                    <select id="laserTypeSelect"></select>
+                </div>
+                <button class="btn" id="btnBuyLaser" onclick="buyLaser()">Buy Laser</button>
+                <button class="btn btn-danger" id="btnSellLaser" onclick="sellLaser()">Sell Laser</button>
+
+                <div class="input-group">
+                    <label>Missiles</label>
+                    <input id="missileQty" type="number" min="1" value="1">
+                </div>
+                <button class="btn" id="btnBuyMissiles" onclick="buyMissiles()">Buy Missiles</button>
+                <button class="btn btn-danger" id="btnSellMissiles" onclick="sellMissiles()">Sell Missiles</button>
+
+                <div class="input-group">
+                    <label>ECM</label>
+                    <div class="qty-controls">
+                        <button class="btn" id="btnBuyEcm" onclick="buyEcm()">Buy ECM</button>
+                        <button class="btn btn-danger" id="btnSellEcm" onclick="sellEcm()">Sell ECM</button>
+                    </div>
+                </div>
+
+                <div class="input-group">
+                    <label>Energy Bomb</label>
+                    <div class="qty-controls">
+                        <button class="btn" id="btnBuyEnergyBomb" onclick="buyEnergyBomb()">Buy Bomb</button>
+                        <button class="btn btn-danger" id="btnSellEnergyBomb" onclick="sellEnergyBomb()">Sell Bomb</button>
+                    </div>
+                </div>
+
+                <div class="trade-status" id="armamentStatus">Ready.</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const PLAYER_NAME_STORAGE_KEY = 'space-trader-player-name';
+        let playerName = null;
+        let playerShipId = null;
+        const MAX_CARGO_SPACE = 100;
+        const FLIGHT_RANGE_LY = 17.5;
+        const DEPARTURE_TIME_MS = 10000;
+        const ARRIVAL_TIME_MS = 60000;
+        const FLIGHT_CONSOLE_MAX_LINES = 8;
+        let currentShipState = null;
+        let currentSystemData = null;
+        let refreshInterval = null;
+        let isUserInteracting = false;
+        let tradePending = false;
+        let galaxyMapData = null;
+        let selectedDestination = null;
+        let selectedDestinationDistance = null;
+        let lastMaxBuy = 0;
+        let lastMaxSell = 0;
+        let garageData = null;
+        let lastShipPhase = null;
+        let pendingArrivalUi = false;
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', async () => {
+            applySystemTheme();
+            setupNavigation();
+            setupSubtabs();
+            setupTradingListeners();
+            setupGarageListeners();
+            await resolvePlayerProfile();
+            await initializePlayer();
+            await refreshData();
+            startAutoRefresh();
+        });
+
+        function setupNavigation() {
+            document.querySelectorAll('.nav-tab').forEach(tab => {
+                tab.addEventListener('click', () => {
+                    const view = tab.dataset.view;
+                    switchView(view);
+                });
+            });
+        }
+
+        function switchView(viewName) {
+            // Update tabs
+            document.querySelectorAll('.nav-tab').forEach(tab => {
+                tab.classList.toggle('active', tab.dataset.view === viewName);
+            });
+            // Update views
+            document.querySelectorAll('.view').forEach(view => {
+                view.classList.toggle('active', view.id === `view-${viewName}`);
+            });
+            if (viewName === 'garage') {
+                void updateGarageView();
+            }
+        }
+
+        function setupSubtabs() {
+            document.querySelectorAll('.subtabs').forEach(group => {
+                const buttons = group.querySelectorAll('.subtab');
+                buttons.forEach(button => {
+                    button.addEventListener('click', () => {
+                        const targetId = button.dataset.subview;
+                        buttons.forEach(btn => btn.classList.toggle('active', btn === button));
+                        const container = group.parentElement;
+                        if (!container) return;
+                        container.querySelectorAll('.subview').forEach(subview => {
+                            subview.classList.toggle('active', subview.id === targetId);
+                        });
+                    });
+                });
+            });
+        }
+
+        function normalizePlayerName(name) {
+            return name.trim().replace(/\s+/g, ' ');
+        }
+
+        async function resolvePlayerProfile() {
+            try {
+                const storedName = localStorage.getItem(PLAYER_NAME_STORAGE_KEY);
+                if (storedName) {
+                    const existing = await fetchPlayerByName(storedName);
+                    if (existing) {
+                        const ensured = await ensurePlayer(storedName);
+                        applyPlayerProfile(ensured);
+                        return;
+                    }
+                }
+                await promptForPlayerProfile();
+            } catch (error) {
+                showBanner('error', `Player setup failed: ${error.message || error}`);
+                throw error;
+            }
+        }
+
+        async function promptForPlayerProfile() {
+            while (true) {
+                const input = window.prompt('Enter your pilot name:');
+                if (input === null) {
+                    showBanner('error', 'Pilot name required to start.');
+                    continue;
+                }
+                const name = normalizePlayerName(input);
+                if (!name) {
+                    showBanner('error', 'Please enter a valid pilot name.');
+                    continue;
+                }
+                const existing = await fetchPlayerByName(name);
+                if (existing) {
+                    const useExisting = window.confirm(`Pilot "${name}" already exists. Use this account?`);
+                    if (useExisting) {
+                        try {
+                            const ensured = await ensurePlayer(name);
+                            applyPlayerProfile(ensured);
+                            return;
+                        } catch (error) {
+                            showBanner('error', `Unable to load account: ${error.message || error}`);
+                            continue;
+                        }
+                    }
+                    continue;
+                }
+                const createAccount = window.confirm(`Create new account for "${name}"?`);
+                if (!createAccount) {
+                    continue;
+                }
+                try {
+                    const created = await ensurePlayer(name);
+                    applyPlayerProfile(created);
+                    return;
+                } catch (error) {
+                    showBanner('error', `Unable to create account: ${error.message || error}`);
+                }
+            }
+        }
+
+        async function fetchPlayerByName(name) {
+            const response = await fetch(`/api/player?name=${encodeURIComponent(name)}`);
+            if (!response.ok) return null;
+            const data = await response.json();
+            return data.player || null;
+        }
+
+        async function ensurePlayer(name) {
+            const response = await fetch('/api/player', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name }),
+            });
+            if (!response.ok) {
+                throw new Error('Failed to register player');
+            }
+            const data = await response.json();
+            return data.player;
+        }
+
+        function applyPlayerProfile(player) {
+            playerName = player.name;
+            playerShipId = player.shipId;
+            localStorage.setItem(PLAYER_NAME_STORAGE_KEY, playerName);
+        }
+
+        async function initializePlayer() {
+            try {
+                if (!playerShipId) {
+                    throw new Error('Player profile not initialized');
+                }
+                // Check if player ship exists, if not create it
+                let created = false;
+                const { response: stateResponse } = await shipApi(`/api/ship/${playerShipId}`);
+                if (!stateResponse.ok) {
+                    showBanner('info', 'New pilot detected. Initializing your ship...');
+                    // Create player ship
+                    await createPlayerShip();
+                    created = true;
+                }
+                await refreshData();
+                if (created) {
+                    showBanner('success', 'Pilot registered. Welcome aboard!');
+                } else {
+                    hideBanner();
+                }
+            } catch (error) {
+                showBanner('error', `Initialization failed: ${error.message}`);
+                showMessage('error', `Failed to initialize: ${error.message}`);
+            }
+        }
+
+        async function createPlayerShip() {
+            try {
+                const { response } = await shipApi(`/api/ship/${playerShipId}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        action: 'initialize',
+                        id: playerShipId,
+                        name: playerName || 'Player Ship',
+                        systemId: 0,
+                        seed: `player-${playerShipId}`,
+                        isNPC: false
+                    })
+                });
+                if (!response.ok) {
+                    throw new Error('Failed to create player ship');
+                }
+            } catch (error) {
+                // Try alternative initialization
+                const { response: initResponse } = await shipApi(`/api/ship/${playerShipId}/initialize`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        id: playerShipId,
+                        name: playerName || 'Player Ship',
+                        systemId: 0,
+                        seed: `player-${playerShipId}`,
+                        isNPC: false
+                    })
+                });
+                if (!initResponse.ok) {
+                    throw new Error('Failed to initialize player ship');
+                }
+            }
+        }
+
+        async function refreshData() {
+            try {
+                // Get ship state
+                const { response: shipResponse, data: shipData } = await shipApi(`/api/ship/${playerShipId}`);
+                if (!shipResponse.ok) throw new Error('Failed to get ship state');
+                currentShipState = shipData;
+
+                if (currentShipState?.phase && currentShipState.phase !== 'at_station') {
+                    const { response: tickResponse } = await shipApi(`/api/ship/${playerShipId}?action=tick`, { method: 'POST' });
+                    if (tickResponse.ok) {
+                        const { response: updatedResponse, data: updatedData } = await shipApi(`/api/ship/${playerShipId}`);
+                        if (updatedResponse.ok) {
+                            currentShipState = updatedData;
+                        }
+                    }
+                }
+
+                handlePhaseTransition();
+
+                // Update header
+                document.getElementById('credits').textContent = Math.floor(currentShipState.credits || 0).toLocaleString();
+                document.getElementById('currentSystem').textContent = currentShipState.currentSystem !== null ? currentShipState.currentSystem : '-';
+                document.getElementById('phase').textContent = currentShipState.phase || '-';
+
+                // Update system view
+                if (currentShipState.currentSystem !== null) {
+                    await updateSystemView(currentShipState.currentSystem);
+                } else {
+                    document.getElementById('sysId').textContent = '-';
+                }
+
+                // Update flight view
+                updateFlightView();
+
+                // Update trading view
+                if (!isUserInteracting && !tradePending) {
+                    updateTradingView();
+                } else {
+                    updateTradeMeta();
+                }
+
+                if (document.getElementById('view-garage')?.classList.contains('active')) {
+                    await updateGarageView();
+                }
+
+                // Update cargo
+                updateCargoDisplay();
+            } catch (error) {
+                console.error('Refresh error:', error);
+            }
+        }
+
+        async function updateSystemView(systemId) {
+            try {
+                const response = await fetch(`/api/system/${systemId}?action=snapshot`);
+                if (!response.ok) throw new Error('Failed to get system data');
+                currentSystemData = await response.json();
+
+                // Update system info
+                const state = currentSystemData.state || {};
+                document.getElementById('sysId').textContent = systemId;
+                document.getElementById('sysPopulation').textContent = (state.population || 0).toLocaleString();
+                document.getElementById('sysTech').textContent = state.techLevel || '-';
+                document.getElementById('sysGov').textContent = state.governmentType || '-';
+
+                // Update market
+                updateMarketDisplay(currentSystemData.markets || {});
+
+                // Update flight map
+                await ensureGalaxyMapData();
+                renderFlightMap();
+            } catch (error) {
+                console.error('System view error:', error);
+            }
+        }
+
+        function updateMarketDisplay(markets) {
+            const tbody = document.getElementById('marketBody');
+            const table = document.getElementById('marketTable');
+            const loading = document.getElementById('marketLoading');
+
+            tbody.innerHTML = '';
+            
+            if (Object.keys(markets).length === 0) {
+                loading.textContent = 'No market data';
+                loading.classList.remove('hidden');
+                table.classList.add('hidden');
+                return;
+            }
+
+            loading.classList.add('hidden');
+            table.classList.remove('hidden');
+
+            Object.entries(markets).forEach(([goodId, market]) => {
+                const row = document.createElement('tr');
+                const price = market.price || 0;
+                const inventory = market.inventory || 0;
+                
+                row.innerHTML = `
+                    <td>${goodId.toUpperCase()}</td>
+                    <td class="price">${price.toFixed(2)} cr</td>
+                    <td>${inventory}</td>
+                `;
+                row.dataset.goodId = goodId;
+                row.addEventListener('click', () => prefillTradeFromMarket(goodId));
+                tbody.appendChild(row);
+            });
+        }
+
+        function updateCargoDisplay() {
+            const cargoList = document.getElementById('cargoList');
+            // Cargo can be a Map or an object
+            let cargo = currentShipState?.cargo || {};
+            if (cargo instanceof Map) {
+                cargo = Object.fromEntries(cargo);
+            }
+            
+            const entries = Object.entries(cargo).filter(([_, qty]) => qty > 0);
+            if (entries.length === 0) {
+                cargoList.innerHTML = '<div class="loading">No cargo</div>';
+                return;
+            }
+
+            cargoList.innerHTML = '<ul class="cargo-list"></ul>';
+            const ul = cargoList.querySelector('ul');
+
+            entries.forEach(([goodId, quantity]) => {
+                const li = document.createElement('li');
+                li.className = 'cargo-item';
+                li.innerHTML = `
+                    <span>${goodId.toUpperCase()}</span>
+                    <span class="status-value">${quantity}</span>
+                `;
+                ul.appendChild(li);
+            });
+        }
+
+        function clamp(value, min, max) {
+            return Math.max(min, Math.min(max, value));
+        }
+
+        function formatSeconds(ms) {
+            const totalSeconds = Math.max(0, Math.ceil(ms / 1000));
+            return `${totalSeconds}s`;
+        }
+
+        function getProgressData(startTime, endTime, fallbackDuration) {
+            if (!startTime) return null;
+            const computedEnd = endTime ?? (fallbackDuration ? startTime + fallbackDuration : null);
+            if (!computedEnd) return null;
+            const total = Math.max(1, computedEnd - startTime);
+            const elapsed = clamp(Date.now() - startTime, 0, total);
+            const percent = Math.round((elapsed / total) * 100);
+            return { elapsed, total, percent, remaining: total - elapsed };
+        }
+
+        function getTravelProgress(phase) {
+            if (!currentShipState) return null;
+            if (phase === 'departing') {
+                return getProgressData(currentShipState.departureStartTime, null, DEPARTURE_TIME_MS);
+            }
+            if (phase === 'in_hyperspace') {
+                const arrivalMark = currentShipState.arrivalStartTime ?? currentShipState.arrivalCompleteTime;
+                return getProgressData(currentShipState.hyperspaceStartTime, arrivalMark, null);
+            }
+            if (phase === 'arriving') {
+                return getProgressData(currentShipState.arrivalStartTime, currentShipState.arrivalCompleteTime, ARRIVAL_TIME_MS);
+            }
+            return null;
+        }
+
+        function updateFlightConsole() {
+            const consoleEl = document.getElementById('flightConsole');
+            if (!consoleEl) return;
+            if (!currentShipState) {
+                consoleEl.innerHTML = '<div class="flight-console-line"><span class="flight-console-prefix">></span><span>Awaiting telemetry...</span></div>';
+                return;
+            }
+
+            const phase = currentShipState.phase || 'unknown';
+            const fromSystem = phase === 'arriving'
+                ? (currentShipState.originSystem ?? currentShipState.currentSystem ?? '?')
+                : (currentShipState.currentSystem ?? currentShipState.originSystem ?? '?');
+            const toSystem = currentShipState.destinationSystem ?? '?';
+            const lines = [];
+
+            if (phase === 'at_station') {
+                lines.push(`Docked at System ${fromSystem}.`);
+                lines.push('All systems nominal. Ready for launch.');
+            } else if (phase === 'departing') {
+                const progress = getTravelProgress(phase);
+                lines.push(`Departure burn from System ${fromSystem}.`);
+                if (progress) {
+                    lines.push(`Clearing gravity well: ${progress.percent}% (${formatSeconds(progress.elapsed)} / ${formatSeconds(progress.total)}).`);
+                    lines.push(`Jump window in ${formatSeconds(progress.remaining)}.`);
+                } else {
+                    lines.push('Clearing gravity well...');
+                }
+            } else if (phase === 'in_hyperspace') {
+                lines.push(`Hyperspace transit: System ${fromSystem} to System ${toSystem}.`);
+                if (currentShipState.arrivalStartTime) {
+                    const untilArrival = currentShipState.arrivalStartTime - Date.now();
+                    lines.push(`Arrival corridor opens in ${formatSeconds(untilArrival)}.`);
+                }
+                if (currentShipState.arrivalCompleteTime) {
+                    const untilDock = currentShipState.arrivalCompleteTime - Date.now();
+                    lines.push(`Station approach ETA ${formatSeconds(untilDock)}.`);
+                } else {
+                    lines.push('Navigation locked. Holding jump.');
+                }
+            } else if (phase === 'arriving') {
+                const progress = getTravelProgress(phase);
+                lines.push(`Approach vector set for System ${toSystem}.`);
+                if (progress) {
+                    lines.push(`Final approach: ${progress.percent}% (${formatSeconds(progress.elapsed)} / ${formatSeconds(progress.total)}).`);
+                    lines.push(`Docking in ${formatSeconds(progress.remaining)}.`);
+                } else {
+                    lines.push('Final approach in progress...');
+                }
+            } else {
+                lines.push(`Status: ${phase.toUpperCase()}.`);
+            }
+
+            const displayLines = lines.slice(0, FLIGHT_CONSOLE_MAX_LINES);
+            consoleEl.innerHTML = displayLines
+                .map(line => `<div class="flight-console-line"><span class="flight-console-prefix">></span><span>${line}</span></div>`)
+                .join('');
+        }
+
+        function handlePhaseTransition() {
+            const currentPhase = currentShipState?.phase || null;
+            if (lastShipPhase && lastShipPhase !== 'at_station' && currentPhase === 'at_station') {
+                pendingArrivalUi = true;
+                switchToTradingSell();
+            }
+            lastShipPhase = currentPhase;
+        }
+
+        function switchToTradingSell() {
+            switchView('trading');
+            setSubtabActive('view-trading', 'trading-sell');
+        }
+
+        function switchToFlightStatus() {
+            switchView('flight');
+            setSubtabActive('view-flight', 'flight-status-panel');
+        }
+
+        function setSubtabActive(viewId, subviewId) {
+            const view = document.getElementById(viewId);
+            if (!view) return;
+            const buttons = view.querySelectorAll('.subtab');
+            buttons.forEach(button => {
+                button.classList.toggle('active', button.dataset.subview === subviewId);
+            });
+            view.querySelectorAll('.subview').forEach(subview => {
+                subview.classList.toggle('active', subview.id === subviewId);
+            });
+        }
+
+        function autoSelectFirstSellItem() {
+            const sellGood = document.getElementById('sellGood');
+            if (!sellGood) return false;
+            const options = Array.from(sellGood.options).filter(option => option.value);
+            if (options.length === 0) return false;
+            sellGood.value = options[0].value;
+            updateSellStats();
+            if (lastMaxSell > 0) {
+                setSellQuantity(lastMaxSell);
+                updateSellStats();
+            }
+            return true;
+        }
+
+        function updateFlightView() {
+            const flightStatus = document.getElementById('flightStatus');
+            const phase = currentShipState?.phase || 'at_station';
+            const currentSystem = currentShipState?.currentSystem;
+            const originSystem = currentShipState?.originSystem;
+
+            if (phase === 'at_station') {
+                flightStatus.innerHTML = `
+                    <h2>DOCKED</h2>
+                    <p style="color: var(--text-secondary);">Ready for launch</p>
+                    <div class="flight-console" id="flightConsole"></div>
+                `;
+                document.getElementById('btnTravel').disabled = false;
+            } else if (phase === 'departing' || phase === 'in_hyperspace' || phase === 'arriving') {
+                const phaseNames = {
+                    'departing': 'DEPARTING',
+                    'in_hyperspace': 'IN HYPERSPACE',
+                    'arriving': 'ARRIVING'
+                };
+                const progress = getTravelProgress(phase);
+                const progressPercent = progress ? clamp(progress.percent, 0, 100) : 50;
+                const fromSystem = phase === 'arriving'
+                    ? (originSystem ?? currentSystem)
+                    : (currentSystem !== null && currentSystem !== undefined ? currentSystem : originSystem);
+                const progressLabel = progress ? `${phaseNames[phase] || phase.toUpperCase()} ${progressPercent}%` : 'IN TRANSIT';
+                flightStatus.innerHTML = `
+                    <h2>${phaseNames[phase] || phase.toUpperCase()}</h2>
+                    <p style="color: var(--text-secondary); margin: 10px 0;">
+                        From: System ${fromSystem ?? '?'}<br>
+                        To: System ${currentShipState?.destinationSystem || '?'}
+                    </p>
+                    <div class="progress-bar">
+                        <div class="progress-fill animating" style="width: ${progressPercent}%;">${progressLabel}</div>
+                    </div>
+                    <div class="flight-console" id="flightConsole"></div>
+                `;
+                document.getElementById('btnTravel').disabled = true;
+            } else {
+                flightStatus.innerHTML = `
+                    <h2>${phase.toUpperCase()}</h2>
+                    <div class="flight-console" id="flightConsole"></div>
+                `;
+                document.getElementById('btnTravel').disabled = true;
+            }
+            updateFlightConsole();
+            updateTravelActionState();
+        }
+
+        function updateTradingView() {
+            if (!currentSystemData?.markets) {
+                updateTradeMeta();
+                setTradingEnabled(currentShipState?.phase === 'at_station');
+                return;
+            }
+
+            const buyGood = document.getElementById('buyGood');
+            const sellGood = document.getElementById('sellGood');
+            const cargo = currentShipState?.cargo || {};
+            const previousBuy = buyGood.value;
+            const previousSell = sellGood.value;
+            const previousBuyQty = getBuyQuantity();
+            const previousSellQty = getSellQuantity();
+
+            // Update buy dropdown
+            buyGood.innerHTML = '<option value="">Select good...</option>';
+            Object.entries(currentSystemData.markets).forEach(([goodId, market]) => {
+                if (market.inventory > 0) {
+                    const option = document.createElement('option');
+                    option.value = goodId;
+                    option.textContent = `${goodId.toUpperCase()} - ${market.price.toFixed(2)} cr`;
+                    buyGood.appendChild(option);
+                }
+            });
+
+            // Update sell dropdown
+            sellGood.innerHTML = '<option value="">Select good...</option>';
+            // Cargo can be a Map or an object
+            let cargoObj = cargo;
+            if (cargo instanceof Map) {
+                cargoObj = Object.fromEntries(cargo);
+            }
+            Object.entries(cargoObj).forEach(([goodId, quantity]) => {
+                if (quantity > 0 && currentSystemData.markets[goodId]) {
+                    const option = document.createElement('option');
+                    option.value = goodId;
+                    option.textContent = `${goodId.toUpperCase()} - ${quantity} units`;
+                    sellGood.appendChild(option);
+                }
+            });
+            if (previousBuy && buyGood.querySelector(`option[value="${previousBuy}"]`)) {
+                buyGood.value = previousBuy;
+            }
+            if (previousSell && sellGood.querySelector(`option[value="${previousSell}"]`)) {
+                sellGood.value = previousSell;
+            }
+            setBuyQuantity(previousBuyQty || 0);
+            setSellQuantity(previousSellQty || 0);
+            updateTradeMeta();
+            setTradingEnabled(currentShipState?.phase === 'at_station');
+            if (pendingArrivalUi) {
+                autoSelectFirstSellItem();
+                pendingArrivalUi = false;
+            }
+        }
+
+        function setGarageBanner(type, text) {
+            const banner = document.getElementById('garageStatus');
+            if (!banner) return;
+            banner.className = `banner banner-${type}`;
+            banner.textContent = text;
+            banner.classList.remove('hidden');
+        }
+
+        function hideGarageBanner() {
+            const banner = document.getElementById('garageStatus');
+            if (!banner) return;
+            banner.classList.add('hidden');
+        }
+
+        function setGarageControlsEnabled(enabled) {
+            const controls = [
+                'btnRefuel',
+                'btnRepairHull',
+                'btnBuyLaser',
+                'btnSellLaser',
+                'btnBuyMissiles',
+                'btnSellMissiles',
+                'btnBuyEcm',
+                'btnSellEcm',
+                'btnBuyEnergyBomb',
+                'btnSellEnergyBomb',
+                'repairPoints',
+                'laserMountSelect',
+                'laserTypeSelect',
+                'missileQty',
+            ];
+            controls.forEach(id => {
+                const element = document.getElementById(id);
+                if (element) {
+                    element.disabled = !enabled;
+                }
+            });
+        }
+
+        function formatCredits(value) {
+            return `${Math.max(0, Math.round(value)).toLocaleString()} cr`;
+        }
+
+        async function updateGarageView() {
+            if (!playerShipId) return;
+            try {
+                const { response, data } = await shipApi(`/api/ship/${playerShipId}?action=armaments`);
+                if (!response.ok) {
+                    throw new Error(data?.error || 'Failed to load garage data');
+                }
+                garageData = data;
+            } catch (error) {
+                setGarageBanner('error', `Garage load failed: ${error.message || error}`);
+                setGarageControlsEnabled(false);
+                return;
+            }
+
+            if (!garageData) {
+                return;
+            }
+
+            const taxRate = garageData.salesTaxRate || 0;
+            const withTax = (amount) => Math.ceil(amount * (1 + taxRate));
+
+            document.getElementById('garageTaxStatus').textContent = `${Math.round(taxRate * 100)}%`;
+            const hullMax = garageData.hullMax ?? 100;
+            const hullIntegrity = garageData.hullIntegrity ?? hullMax;
+            document.getElementById('garageHullStatus').textContent = `${hullIntegrity} / ${hullMax}`;
+            document.getElementById('garageFuelStatus').textContent = `${garageData.fuelLy.toFixed(1)} / ${garageData.fuelCapacityLy.toFixed(1)} LY`;
+
+            const docked = garageData.techLevel !== null && garageData.techLevel !== undefined;
+            if (!docked) {
+                setGarageBanner('info', 'Dock at a station to access garage services.');
+                setGarageControlsEnabled(false);
+                return;
+            }
+            hideGarageBanner();
+            setGarageControlsEnabled(true);
+
+            const fuelMissing = Math.max(0, garageData.fuelCapacityLy - garageData.fuelLy);
+            const fuelBaseCost = fuelMissing * (garageData.prices?.fuel || 0);
+            const fuelTotalCost = withTax(fuelBaseCost);
+            document.getElementById('fuelCurrent').textContent = `${garageData.fuelLy.toFixed(1)} LY`;
+            document.getElementById('fuelCapacity').textContent = `${garageData.fuelCapacityLy.toFixed(1)} LY`;
+            document.getElementById('fuelCost').textContent = fuelMissing > 0 ? formatCredits(fuelTotalCost) : 'Full';
+            document.getElementById('btnRefuel').disabled = fuelMissing <= 0;
+
+            const hullMissing = Math.max(0, hullMax - hullIntegrity);
+            const repairRate = garageData.repairPrices?.hull || 0;
+            const repairPointsInput = document.getElementById('repairPoints');
+            if (repairPointsInput) {
+                repairPointsInput.max = hullMissing.toString();
+                if (parseInt(repairPointsInput.value || '0', 10) > hullMissing) {
+                    repairPointsInput.value = hullMissing.toString();
+                }
+            }
+            document.getElementById('hullIntegrity').textContent = `${hullIntegrity} / ${hullMax}`;
+            if (hullMissing > 0) {
+                updateRepairCostDisplay();
+            } else {
+                document.getElementById('repairCost').textContent = 'No repairs needed';
+            }
+            document.getElementById('btnRepairHull').disabled = hullMissing <= 0;
+
+            const lasers = garageData.armaments?.lasers || {};
+            document.getElementById('laserFront').textContent = lasers.front ? lasers.front.toUpperCase() : 'None';
+            document.getElementById('laserRear').textContent = lasers.rear ? lasers.rear.toUpperCase() : 'None';
+            document.getElementById('laserLeft').textContent = lasers.left ? lasers.left.toUpperCase() : 'None';
+            document.getElementById('laserRight').textContent = lasers.right ? lasers.right.toUpperCase() : 'None';
+            document.getElementById('missileCount').textContent = `${garageData.armaments?.missiles || 0} / ${garageData.limits?.missiles || 0}`;
+            document.getElementById('ecmStatus').textContent = garageData.armaments?.ecm ? 'Installed' : 'None';
+            document.getElementById('energyBombStatus').textContent = garageData.armaments?.energyBomb ? 'Installed' : 'None';
+
+            const laserSelect = document.getElementById('laserTypeSelect');
+            const previousLaser = laserSelect.value;
+            laserSelect.innerHTML = '';
+            const availableLasers = garageData.available?.lasers || [];
+            if (availableLasers.length === 0) {
+                const option = document.createElement('option');
+                option.value = '';
+                option.textContent = 'Unavailable';
+                laserSelect.appendChild(option);
+            } else {
+                availableLasers.forEach(type => {
+                    const option = document.createElement('option');
+                    option.value = type;
+                    const price = garageData.prices?.lasers?.[type] || 0;
+                    option.textContent = `${type.toUpperCase()} (${formatCredits(withTax(price))})`;
+                    laserSelect.appendChild(option);
+                });
+                if (previousLaser && laserSelect.querySelector(`option[value="${previousLaser}"]`)) {
+                    laserSelect.value = previousLaser;
+                }
+            }
+
+            const mountSelect = document.getElementById('laserMountSelect');
+            const selectedMount = mountSelect.value;
+            const mountedLaser = lasers[selectedMount] || null;
+            document.getElementById('btnSellLaser').disabled = !mountedLaser;
+            document.getElementById('btnBuyLaser').disabled = availableLasers.length === 0;
+
+            document.getElementById('btnBuyMissiles').disabled = !garageData.available?.missiles;
+            document.getElementById('btnSellMissiles').disabled = (garageData.armaments?.missiles || 0) <= 0;
+            document.getElementById('btnBuyEcm').disabled = !garageData.available?.ecm;
+            document.getElementById('btnSellEcm').disabled = !garageData.armaments?.ecm;
+            document.getElementById('btnBuyEnergyBomb').disabled = !garageData.available?.energyBomb;
+            document.getElementById('btnSellEnergyBomb').disabled = !garageData.armaments?.energyBomb;
+        }
+
+        async function garageAction(payload, statusId) {
+            const status = document.getElementById(statusId);
+            if (status) status.textContent = 'Working...';
+            try {
+                const { response, data } = await shipApi(`/api/ship/${playerShipId}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        action: 'armaments',
+                        ...payload
+                    })
+                });
+                if (!response.ok) {
+                    throw new Error(data?.error || 'Operation failed');
+                }
+                if (status) status.textContent = 'Done.';
+                await refreshData();
+                await updateGarageView();
+            } catch (error) {
+                if (status) status.textContent = `Error: ${error.message || error}`;
+            }
+        }
+
+        function purchaseFuel() {
+            return garageAction({ operation: 'buy', category: 'fuel' }, 'fuelStatus');
+        }
+
+        function repairHull() {
+            const points = parseInt(document.getElementById('repairPoints').value, 10) || 1;
+            return garageAction({ operation: 'repair', category: 'repair', item: 'hull', quantity: points }, 'repairStatus');
+        }
+
+        function buyLaser() {
+            const mount = document.getElementById('laserMountSelect').value;
+            const laserType = document.getElementById('laserTypeSelect').value;
+            return garageAction({ operation: 'buy', category: 'laser', mount, laserType }, 'armamentStatus');
+        }
+
+        function sellLaser() {
+            const mount = document.getElementById('laserMountSelect').value;
+            return garageAction({ operation: 'sell', category: 'laser', mount }, 'armamentStatus');
+        }
+
+        function buyMissiles() {
+            const quantity = parseInt(document.getElementById('missileQty').value, 10) || 1;
+            return garageAction({ operation: 'buy', category: 'missile', quantity }, 'armamentStatus');
+        }
+
+        function sellMissiles() {
+            const quantity = parseInt(document.getElementById('missileQty').value, 10) || 1;
+            return garageAction({ operation: 'sell', category: 'missile', quantity }, 'armamentStatus');
+        }
+
+        function buyEcm() {
+            return garageAction({ operation: 'buy', category: 'ecm' }, 'armamentStatus');
+        }
+
+        function sellEcm() {
+            return garageAction({ operation: 'sell', category: 'ecm' }, 'armamentStatus');
+        }
+
+        function buyEnergyBomb() {
+            return garageAction({ operation: 'buy', category: 'energyBomb' }, 'armamentStatus');
+        }
+
+        function sellEnergyBomb() {
+            return garageAction({ operation: 'sell', category: 'energyBomb' }, 'armamentStatus');
+        }
+
+        function setupTradingListeners() {
+            document.getElementById('buyGood').addEventListener('change', updateBuyTotal);
+            document.getElementById('sellGood').addEventListener('change', updateSellTotal);
+            document.querySelectorAll('.qty-btn').forEach(button => {
+                button.addEventListener('click', () => {
+                    const target = button.dataset.target;
+                    const action = button.dataset.action;
+                    if (action === 'clear') {
+                        setQuantity(target, 0);
+                        refreshTotals(target);
+                        return;
+                    }
+                    if (action === 'max') {
+                        const maxValue = target === 'buy' ? lastMaxBuy : lastMaxSell;
+                        setQuantity(target, maxValue);
+                        refreshTotals(target);
+                        return;
+                    }
+                    const delta = parseInt(button.dataset.qty, 10) || 0;
+                    adjustQuantity(target, delta);
+                });
+            });
+            document.addEventListener('focusin', (event) => {
+                if (event.target.matches('input, select')) {
+                    isUserInteracting = true;
+                }
+            });
+            document.addEventListener('focusout', (event) => {
+                if (event.target.matches('input, select')) {
+                    setTimeout(() => {
+                        if (!document.querySelector('input:focus, select:focus')) {
+                            isUserInteracting = false;
+                        }
+                    }, 150);
+                }
+            });
+        }
+
+        function setupGarageListeners() {
+            const mountSelect = document.getElementById('laserMountSelect');
+            if (mountSelect) {
+                mountSelect.addEventListener('change', () => {
+                    if (!garageData) return;
+                    const laser = garageData.armaments?.lasers?.[mountSelect.value] || null;
+                    const sellButton = document.getElementById('btnSellLaser');
+                    if (sellButton) {
+                        sellButton.disabled = !laser;
+                    }
+                });
+            }
+            const repairPointsInput = document.getElementById('repairPoints');
+            if (repairPointsInput) {
+                repairPointsInput.addEventListener('input', updateRepairCostDisplay);
+            }
+        }
+
+        function updateRepairCostDisplay() {
+            if (!garageData) return;
+            const repairRate = garageData.repairPrices?.hull || 0;
+            const taxRate = garageData.salesTaxRate || 0;
+            const withTax = (amount) => Math.ceil(amount * (1 + taxRate));
+            const hullMax = garageData.hullMax ?? 100;
+            const hullIntegrity = garageData.hullIntegrity ?? hullMax;
+            const hullMissing = Math.max(0, hullMax - hullIntegrity);
+            const repairPointsInput = document.getElementById('repairPoints');
+            if (!repairPointsInput) return;
+            const requested = Math.max(1, Math.min(parseInt(repairPointsInput.value || '0', 10), hullMissing));
+            if (requested <= 0) {
+                document.getElementById('repairCost').textContent = 'No repairs needed';
+                return;
+            }
+            const baseCost = requested * repairRate;
+            document.getElementById('repairCost').textContent = formatCredits(withTax(baseCost));
+        }
+
+        function updateBuyTotal() {
+            updateBuyStats();
+        }
+
+        function updateSellTotal() {
+            updateSellStats();
+        }
+
+        async function shipApi(path, options = {}) {
+            if (!playerShipId) {
+                throw new Error('Player profile not initialized');
+            }
+            const method = options.method || 'GET';
+            let requestData = undefined;
+            if (options.body) {
+                try {
+                    requestData = JSON.parse(options.body);
+                } catch {
+                    requestData = options.body;
+                }
+            }
+            const response = await fetch(path, options);
+            let data = null;
+            try {
+                data = await response.json();
+            } catch {
+                try {
+                    data = await response.text();
+                } catch {
+                    data = null;
+                }
+            }
+            logPlayerClient({
+                shipId: playerShipId,
+                method,
+                path,
+                request: requestData,
+                status: response.status,
+                response: data,
+            });
+            return { response, data };
+        }
+
+        function logPlayerClient(entry) {
+            fetch('/api/player-logs', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(entry),
+            }).catch(() => {});
+        }
+
+        function getBuyQuantity() {
+            return parseInt(document.getElementById('buyQtyDisplay').textContent, 10) || 0;
+        }
+
+        function getSellQuantity() {
+            return parseInt(document.getElementById('sellQtyDisplay').textContent, 10) || 0;
+        }
+
+        function setBuyQuantity(value) {
+            document.getElementById('buyQtyDisplay').textContent = String(Math.max(0, value));
+        }
+
+        function setSellQuantity(value) {
+            document.getElementById('sellQtyDisplay').textContent = String(Math.max(0, value));
+        }
+
+        function adjustQuantity(type, delta) {
+            if (type === 'buy') {
+                const current = getBuyQuantity();
+                setQuantity('buy', current + delta);
+                updateBuyStats();
+            } else if (type === 'sell') {
+                const current = getSellQuantity();
+                setQuantity('sell', current + delta);
+                updateSellStats();
+            }
+        }
+
+        function setQuantity(type, value) {
+            const safeValue = Math.max(0, value);
+            if (type === 'buy') {
+                const clamped = lastMaxBuy > 0 ? Math.min(safeValue, lastMaxBuy) : safeValue;
+                setBuyQuantity(clamped);
+            } else if (type === 'sell') {
+                const clamped = lastMaxSell > 0 ? Math.min(safeValue, lastMaxSell) : safeValue;
+                setSellQuantity(clamped);
+            }
+        }
+
+        function refreshTotals(type) {
+            if (type === 'buy') {
+                updateBuyStats();
+            } else if (type === 'sell') {
+                updateSellStats();
+            }
+        }
+
+        async function initiateTravel() {
+            const destination = selectedDestination;
+            const messageDiv = document.getElementById('travelMessage');
+            
+            if (destination === null || destination === undefined) {
+                showMessage('error', 'Select a destination from the map', messageDiv);
+                return;
+            }
+
+            if (currentShipState?.phase !== 'at_station') {
+                showMessage('error', 'Must be docked to travel', messageDiv);
+                return;
+            }
+
+            try {
+                const requestBody = { destinationSystem: destination };
+                if (Number.isFinite(selectedDestinationDistance)) {
+                    requestBody.distanceLy = selectedDestinationDistance;
+                }
+                const { response, data } = await shipApi(`/api/ship/${playerShipId}/travel`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(requestBody)
+                });
+
+                if (response.ok && data.success) {
+                    showMessage('success', `Travel initiated to System ${destination} (${data.distance} LY)`, messageDiv);
+                    await refreshData();
+                    switchToFlightStatus();
+                } else {
+                    showMessage('error', data.error || 'Travel failed', messageDiv);
+                }
+            } catch (error) {
+                showMessage('error', `Travel error: ${error.message}`, messageDiv);
+            }
+        }
+
+        async function buyGoods() {
+            const goodId = document.getElementById('buyGood').value;
+            const quantity = getBuyQuantity();
+            const messageDiv = document.getElementById('buyMessage');
+            const buyButton = document.querySelector('.btn-success');
+
+            if (!goodId || quantity <= 0) {
+                showMessage('error', 'Invalid selection', messageDiv);
+                return;
+            }
+
+            if (currentShipState?.phase !== 'at_station') {
+                showMessage('error', 'Must be docked to trade', messageDiv);
+                return;
+            }
+
+            try {
+                setTradePending(true, 'buy');
+                setButtonPending(buyButton, 'BUYING...', true);
+                setTradeStatus('buyStatus', 'Submitting buy order...', 'pending');
+                const { response, data } = await shipApi(`/api/ship/${playerShipId}/trade`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        goodId: goodId,
+                        quantity: quantity,
+                        type: 'buy'
+                    })
+                });
+
+                if (response.ok && data.success) {
+                    setTradeStatus('buyStatus', 'Buy completed.', 'success');
+                    showMessage('success', `Bought ${quantity} ${goodId} for ${data.totalCost?.toFixed(2) || 'N/A'} cr`, messageDiv);
+                    if (data.ship) {
+                        currentShipState = data.ship;
+                        updateHeaderDisplay();
+                        updateCargoDisplay();
+                        updateTradeMeta();
+                    }
+                    await refreshData();
+                } else {
+                    setTradeStatus('buyStatus', data.error || 'Buy failed.', 'error');
+                    showMessage('error', data.error || 'Buy failed', messageDiv);
+                }
+            } catch (error) {
+                setTradeStatus('buyStatus', `Buy error: ${error.message}`, 'error');
+                showMessage('error', `Buy error: ${error.message}`, messageDiv);
+            } finally {
+                setTradePending(false);
+                setButtonPending(buyButton, 'BUYING...', false);
+            }
+        }
+
+        async function sellGoods() {
+            const goodId = document.getElementById('sellGood').value;
+            const quantity = getSellQuantity();
+            const messageDiv = document.getElementById('sellMessage');
+            const sellButton = document.querySelector('.btn-danger');
+
+            if (!goodId || quantity <= 0) {
+                showMessage('error', 'Invalid selection', messageDiv);
+                return;
+            }
+
+            if (currentShipState?.phase !== 'at_station') {
+                showMessage('error', 'Must be docked to trade', messageDiv);
+                return;
+            }
+
+            // Cargo can be a Map or an object
+            let cargo = currentShipState?.cargo || {};
+            if (cargo instanceof Map) {
+                cargo = Object.fromEntries(cargo);
+            }
+            if (!cargo[goodId] || cargo[goodId] < quantity) {
+                showMessage('error', 'Insufficient cargo', messageDiv);
+                return;
+            }
+
+            try {
+                setTradePending(true, 'sell');
+                setButtonPending(sellButton, 'SELLING...', true);
+                setTradeStatus('sellStatus', 'Submitting sell order...', 'pending');
+                const { response, data } = await shipApi(`/api/ship/${playerShipId}/trade`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        goodId: goodId,
+                        quantity: quantity,
+                        type: 'sell'
+                    })
+                });
+
+                if (response.ok && data.success) {
+                    setTradeStatus('sellStatus', 'Sell completed.', 'success');
+                    showMessage('success', `Sold ${quantity} ${goodId} for ${data.totalValue?.toFixed(2) || 'N/A'} cr`, messageDiv);
+                    if (data.ship) {
+                        currentShipState = data.ship;
+                        updateHeaderDisplay();
+                        updateCargoDisplay();
+                        updateTradeMeta();
+                    }
+                    await refreshData();
+                } else {
+                    setTradeStatus('sellStatus', data.error || 'Sell failed.', 'error');
+                    showMessage('error', data.error || 'Sell failed', messageDiv);
+                }
+            } catch (error) {
+                setTradeStatus('sellStatus', `Sell error: ${error.message}`, 'error');
+                showMessage('error', `Sell error: ${error.message}`, messageDiv);
+            } finally {
+                setTradePending(false);
+                setButtonPending(sellButton, 'SELLING...', false);
+            }
+        }
+
+        function showMessage(type, text, container) {
+            if (!container) container = document.body;
+            const message = document.createElement('div');
+            message.className = `message message-${type}`;
+            message.textContent = text;
+            container.innerHTML = '';
+            container.appendChild(message);
+            setTimeout(() => message.remove(), 5000);
+        }
+
+        function updateHeaderDisplay() {
+            if (!currentShipState) return;
+            document.getElementById('credits').textContent = Math.floor(currentShipState.credits || 0).toLocaleString();
+            document.getElementById('currentSystem').textContent = currentShipState.currentSystem !== null ? currentShipState.currentSystem : '-';
+            document.getElementById('phase').textContent = currentShipState.phase || '-';
+        }
+
+        function showBanner(type, text) {
+            const banner = document.getElementById('playerBanner');
+            banner.className = `banner banner-${type}`;
+            banner.textContent = text;
+            banner.classList.remove('hidden');
+            if (type === 'success') {
+                setTimeout(() => banner.classList.add('hidden'), 4000);
+            }
+        }
+
+        function hideBanner() {
+            const banner = document.getElementById('playerBanner');
+            banner.classList.add('hidden');
+        }
+
+        function startAutoRefresh() {
+            if (refreshInterval) clearInterval(refreshInterval);
+            refreshInterval = setInterval(refreshData, 2000); // Refresh every 2 seconds
+        }
+
+        async function saveGame() {
+            const button = document.getElementById('saveGameButton');
+            if (!button) return;
+            const originalLabel = button.textContent;
+            button.textContent = 'Saving...';
+            button.disabled = true;
+            try {
+                const response = await fetch('/api/flush', { method: 'POST' });
+                if (!response.ok) {
+                    const message = await response.text();
+                    throw new Error(message || 'Save failed');
+                }
+                showBanner('success', 'Game saved.');
+            } catch (error) {
+                showBanner('error', `Save failed: ${error.message || error}`);
+            } finally {
+                button.textContent = originalLabel;
+                button.disabled = false;
+            }
+        }
+
+        async function loadGame() {
+            const button = document.getElementById('loadGameButton');
+            if (!button) return;
+            const originalLabel = button.textContent;
+            button.textContent = 'Loading...';
+            button.disabled = true;
+            try {
+                await refreshData();
+                showBanner('success', 'Game data refreshed.');
+            } catch (error) {
+                showBanner('error', `Load failed: ${error.message || error}`);
+            } finally {
+                button.textContent = originalLabel;
+                button.disabled = false;
+            }
+        }
+
+        function applySystemTheme() {
+            const media = window.matchMedia('(prefers-color-scheme: light)');
+            const updateTheme = () => {
+                if (media.matches) {
+                    document.documentElement.setAttribute('data-theme', 'light');
+                } else {
+                    document.documentElement.removeAttribute('data-theme');
+                }
+            };
+            updateTheme();
+            if (media.addEventListener) {
+                media.addEventListener('change', updateTheme);
+            } else if (media.addListener) {
+                media.addListener(updateTheme);
+            }
+        }
+
+        function prefillTradeFromMarket(goodId) {
+            if (!goodId) return;
+            switchView('trading');
+            const buyGood = document.getElementById('buyGood');
+            if (buyGood.querySelector(`option[value="${goodId}"]`)) {
+                buyGood.value = goodId;
+            }
+            setQuantity('buy', 1);
+            updateTradeMeta();
+        }
+
+        async function ensureGalaxyMapData() {
+            if (galaxyMapData) return;
+            try {
+                const response = await fetch('/api/galaxy/map');
+                const data = await response.json();
+                galaxyMapData = Array.isArray(data.systems) ? data.systems : [];
+            } catch (error) {
+                galaxyMapData = [];
+            }
+        }
+
+        function renderFlightMap() {
+            const svg = document.getElementById('flightMapSvg');
+            const tooltip = document.getElementById('flightMapTooltip');
+            const mapContainer = document.getElementById('flightMap');
+            if (!svg) return;
+
+            const systems = galaxyMapData || [];
+            if (systems.length === 0) {
+                svg.innerHTML = '<text x="50%" y="50%" text-anchor="middle" fill="#3b8c6b" font-size="12">No map data</text>';
+                return;
+            }
+
+            const currentSystemId = currentShipState?.currentSystem;
+            const currentSystem = systems.find(sys => sys.id === currentSystemId);
+            if (!currentSystem) {
+                svg.innerHTML = '<text x="50%" y="50%" text-anchor="middle" fill="#3b8c6b" font-size="12">Current system unknown</text>';
+                return;
+            }
+            let filteredSystems = systems.filter(sys => {
+                const dx = sys.x - currentSystem.x;
+                const dy = sys.y - currentSystem.y;
+                const distance = Math.hypot(dx, dy);
+                return distance <= FLIGHT_RANGE_LY;
+            });
+
+            if (selectedDestination !== null && selectedDestination !== undefined) {
+                const stillReachable = filteredSystems.some(sys => sys.id === selectedDestination);
+                if (!stillReachable) {
+                    selectedDestination = null;
+                    selectedDestinationDistance = null;
+                    updateSelectedDestinationDisplay();
+                    updateTravelActionState();
+                }
+            }
+
+            if (filteredSystems.length === 0) {
+                svg.innerHTML = '<text x="50%" y="50%" text-anchor="middle" fill="#3b8c6b" font-size="12">No systems in range</text>';
+                return;
+            }
+
+            svg.innerHTML = '';
+            const width = svg.clientWidth || 600;
+            const height = svg.clientHeight || 260;
+
+            let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+            filteredSystems.forEach(sys => {
+                minX = Math.min(minX, sys.x);
+                maxX = Math.max(maxX, sys.x);
+                minY = Math.min(minY, sys.y);
+                maxY = Math.max(maxY, sys.y);
+            });
+
+            const padding = 16;
+            const rangeX = maxX - minX || 128;
+            const rangeY = maxY - minY || 128;
+            const scaleX = (width - padding * 2) / rangeX;
+            const scaleY = (height - padding * 2) / rangeY;
+            const scale = Math.min(scaleX, scaleY);
+            const centerX = width / 2;
+            const centerY = height / 2;
+            const offsetX = (minX + maxX) / 2;
+            const offsetY = (minY + maxY) / 2;
+
+            const worldToScreen = (wx, wy) => {
+                const screenX = centerX + (wx - offsetX) * scale;
+                const screenY = centerY + (wy - offsetY) * scale;
+                return { x: screenX, y: screenY };
+            };
+
+            filteredSystems.forEach((sys) => {
+                const screenPos = worldToScreen(sys.x, sys.y);
+                const x = screenPos.x;
+                const y = screenPos.y;
+                if (x < -10 || x > width + 10 || y < -10 || y > height + 10) return;
+
+                const isCurrent = sys.id === currentSystemId;
+                const isSelected = sys.id === selectedDestination;
+                const radius = isCurrent ? 5 : isSelected ? 4 : 3;
+                const fill = isCurrent ? '#46d9ff' : isSelected ? '#a3ffb3' : 'rgba(96, 165, 250, 0.6)';
+
+                const systemCircle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+                systemCircle.setAttribute('cx', x);
+                systemCircle.setAttribute('cy', y);
+                systemCircle.setAttribute('r', radius);
+                systemCircle.setAttribute('fill', fill);
+                systemCircle.setAttribute('stroke', '#0b1016');
+                systemCircle.setAttribute('stroke-width', '1');
+                systemCircle.setAttribute('data-system-id', sys.id);
+                systemCircle.style.cursor = 'pointer';
+                svg.appendChild(systemCircle);
+
+                if (isCurrent) {
+                    const label = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+                    label.setAttribute('x', x);
+                    label.setAttribute('y', y - 10);
+                    label.setAttribute('fill', '#46d9ff');
+                    label.setAttribute('font-size', '11');
+                    label.setAttribute('font-weight', '600');
+                    label.setAttribute('text-anchor', 'middle');
+                    label.textContent = `System ${sys.id}`;
+                    svg.appendChild(label);
+                }
+
+                systemCircle.addEventListener('mouseenter', (e) => {
+                    const sysId = parseInt(e.target.getAttribute('data-system-id'), 10);
+                    const system = filteredSystems.find(s => s.id === sysId);
+                    if (!system) return;
+                    let tooltipText = `System ${sysId}`;
+                    if (currentSystem) {
+                        const dx = system.x - currentSystem.x;
+                        const dy = system.y - currentSystem.y;
+                        const distance = Math.hypot(dx, dy);
+                        tooltipText += `\nDistance: ${distance.toFixed(1)} LY`;
+                    }
+                    if (system.techLevel !== undefined) {
+                        tooltipText += `\nTech Level: ${system.techLevel}`;
+                    }
+                    if (system.worldType) {
+                        const worldTypeDisplay = system.worldType.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+                        tooltipText += `\nWorld Type: ${worldTypeDisplay}`;
+                    }
+                    tooltip.style.display = 'block';
+                    tooltip.textContent = tooltipText;
+                    positionFlightTooltip(e, tooltip, mapContainer);
+                });
+
+                systemCircle.addEventListener('mousemove', (e) => {
+                    positionFlightTooltip(e, tooltip, mapContainer);
+                });
+
+                systemCircle.addEventListener('mouseleave', () => {
+                    tooltip.style.display = 'none';
+                });
+
+                systemCircle.addEventListener('click', () => {
+                    setSelectedDestination(sys.id);
+                });
+            });
+        }
+
+        function positionFlightTooltip(event, tooltip, container) {
+            if (!tooltip || !container) return;
+            const rect = container.getBoundingClientRect();
+            const offsetX = event.clientX - rect.left;
+            const offsetY = event.clientY - rect.top;
+            const padding = 8;
+            const gap = 12;
+            const tooltipWidth = tooltip.offsetWidth || 160;
+            const tooltipHeight = tooltip.offsetHeight || 60;
+            let left = offsetX + gap;
+            let top = offsetY + gap;
+
+            if (left + tooltipWidth + padding > rect.width) {
+                left = offsetX - tooltipWidth - gap;
+            }
+            if (top + tooltipHeight + padding > rect.height) {
+                top = offsetY - tooltipHeight - gap;
+            }
+            left = Math.max(padding, Math.min(left, rect.width - tooltipWidth - padding));
+            top = Math.max(padding, Math.min(top, rect.height - tooltipHeight - padding));
+
+            tooltip.style.left = `${left}px`;
+            tooltip.style.top = `${top}px`;
+        }
+
+        function setSelectedDestination(systemId) {
+            selectedDestination = systemId;
+            selectedDestinationDistance = getMapDistance(systemId);
+            const launchBtn = document.getElementById('btnTravel');
+            launchBtn.textContent = `LAUNCH TO ${systemId}`;
+            renderFlightMap();
+            updateTravelActionState();
+        }
+
+        function updateTravelActionState() {
+            const launchBtn = document.getElementById('btnTravel');
+            const isDocked = currentShipState?.phase === 'at_station';
+            const hasDestination = selectedDestination !== null && selectedDestination !== undefined;
+            updateSelectedDestinationDisplay();
+            if (!hasDestination) {
+                launchBtn.textContent = 'LAUNCH';
+            }
+            launchBtn.disabled = !isDocked || !hasDestination;
+        }
+
+        function updateSelectedDestinationDisplay() {
+            const label = document.getElementById('selectedDestination');
+            if (selectedDestination === null || selectedDestination === undefined) {
+                label.textContent = 'None';
+                return;
+            }
+            if (Number.isFinite(selectedDestinationDistance)) {
+                label.textContent = `System ${selectedDestination} (${selectedDestinationDistance.toFixed(1)} LY)`;
+            } else {
+                label.textContent = `System ${selectedDestination}`;
+            }
+        }
+
+        function getMapDistance(systemId) {
+            const systems = galaxyMapData || [];
+            const currentSystemId = currentShipState?.currentSystem;
+            const currentSystem = systems.find(sys => sys.id === currentSystemId);
+            const destinationSystem = systems.find(sys => sys.id === systemId);
+            if (!currentSystem || !destinationSystem) return null;
+            const dx = destinationSystem.x - currentSystem.x;
+            const dy = destinationSystem.y - currentSystem.y;
+            return Math.sqrt(dx * dx + dy * dy);
+        }
+
+        function getCargoState() {
+            let cargo = currentShipState?.cargo || {};
+            if (cargo instanceof Map) {
+                cargo = Object.fromEntries(cargo);
+            }
+            const usedSpace = Object.values(cargo).reduce((sum, qty) => sum + qty, 0);
+            return {
+                cargo,
+                usedSpace,
+                capacity: MAX_CARGO_SPACE,
+                availableSpace: Math.max(0, MAX_CARGO_SPACE - usedSpace)
+            };
+        }
+
+        function updateTradeMeta() {
+            const credits = currentShipState?.credits || 0;
+            const { cargo, usedSpace, capacity, availableSpace } = getCargoState();
+            document.getElementById('tradeCreditsBuy').textContent = Math.floor(credits).toLocaleString();
+            document.getElementById('tradeCreditsSell').textContent = Math.floor(credits).toLocaleString();
+            document.getElementById('tradeCargoBuy').textContent = `${usedSpace}/${capacity}`;
+            document.getElementById('tradeCargoSell').textContent = `${usedSpace}/${capacity}`;
+            updateBuyStats(credits, availableSpace);
+            updateSellStats(cargo);
+        }
+
+        function updateBuyStats(creditsOverride, availableSpaceOverride) {
+            const goodId = document.getElementById('buyGood').value;
+            let quantity = getBuyQuantity();
+            const credits = creditsOverride ?? (currentShipState?.credits || 0);
+            const availableSpace = availableSpaceOverride ?? getCargoState().availableSpace;
+            let maxBuy = 0;
+            let stock = '-';
+
+            if (goodId && currentSystemData?.markets[goodId]) {
+                const price = currentSystemData.markets[goodId].price;
+                const inventory = currentSystemData.markets[goodId].inventory || 0;
+                const maxByCredits = price > 0 ? Math.floor(credits / (price * 1.05)) : 0;
+                maxBuy = Math.max(0, Math.min(maxByCredits, inventory, availableSpace));
+                stock = inventory.toLocaleString();
+                if (maxBuy === 0) {
+                    quantity = 0;
+                } else if (quantity > maxBuy) {
+                    quantity = maxBuy;
+                }
+                setBuyQuantity(quantity);
+                const total = price * quantity * 1.05; // Include 5% tax
+                document.getElementById('buyTotal').textContent = `${total.toFixed(2)} cr`;
+            } else {
+                setBuyQuantity(0);
+                document.getElementById('buyTotal').textContent = '0 cr';
+            }
+
+            lastMaxBuy = maxBuy;
+            document.getElementById('buyStock').textContent = stock;
+            document.getElementById('buyMax').textContent = maxBuy.toLocaleString();
+        }
+
+        function updateSellStats(cargoOverride) {
+            const goodId = document.getElementById('sellGood').value;
+            let quantity = getSellQuantity();
+            const cargo = cargoOverride ?? getCargoState().cargo;
+            let maxSell = 0;
+            let owned = '-';
+
+            if (goodId && currentSystemData?.markets[goodId]) {
+                const price = currentSystemData.markets[goodId].price;
+                const cargoQty = cargo[goodId] || 0;
+                maxSell = cargoQty;
+                owned = cargoQty.toLocaleString();
+                if (maxSell === 0) {
+                    quantity = 0;
+                } else if (quantity > maxSell) {
+                    quantity = maxSell;
+                }
+                setSellQuantity(quantity);
+                const total = price * quantity * 0.95; // After 5% tax
+                document.getElementById('sellTotal').textContent = `${total.toFixed(2)} cr`;
+            } else {
+                setSellQuantity(0);
+                document.getElementById('sellTotal').textContent = '0 cr';
+            }
+
+            lastMaxSell = maxSell;
+            document.getElementById('sellCargoQty').textContent = owned;
+            document.getElementById('sellMax').textContent = maxSell.toLocaleString();
+        }
+
+        function setTradePending(isPending, type) {
+            tradePending = isPending;
+            const controls = [
+                document.getElementById('buyGood'),
+                document.getElementById('sellGood'),
+                document.querySelector('.btn-success'),
+                document.querySelector('.btn-danger'),
+                ...document.querySelectorAll('.qty-btn')
+            ];
+            controls.forEach(control => {
+                if (control) {
+                    control.disabled = isPending;
+                }
+            });
+            if (isPending) {
+                setTradeStatus('buyStatus', type === 'buy' ? 'Submitting buy order...' : 'Trading locked...', 'pending');
+                setTradeStatus('sellStatus', type === 'sell' ? 'Submitting sell order...' : 'Trading locked...', 'pending');
+            } else {
+                setTradingEnabled(currentShipState?.phase === 'at_station');
+            }
+        }
+
+        function setTradingEnabled(enabled) {
+            const controls = [
+                document.getElementById('buyGood'),
+                document.getElementById('sellGood'),
+                document.querySelector('.btn-success'),
+                document.querySelector('.btn-danger'),
+                ...document.querySelectorAll('.qty-btn')
+            ];
+            controls.forEach(control => {
+                if (control) {
+                    control.disabled = !enabled || tradePending;
+                }
+            });
+            if (!enabled) {
+                setTradeStatus('buyStatus', 'Docked required to trade.', 'warn');
+                setTradeStatus('sellStatus', 'Docked required to trade.', 'warn');
+            } else if (!tradePending) {
+                setTradeStatus('buyStatus', 'Ready.', '');
+                setTradeStatus('sellStatus', 'Ready.', '');
+            }
+        }
+
+        function setTradeStatus(elementId, text, tone) {
+            const statusEl = document.getElementById(elementId);
+            statusEl.textContent = text;
+            statusEl.className = `trade-status${tone ? ` ${tone}` : ''}`;
+        }
+
+        function setButtonPending(button, pendingText, isPending) {
+            if (!button) return;
+            if (!button.dataset.label) {
+                button.dataset.label = button.textContent;
+            }
+            button.textContent = isPending ? pendingText : button.dataset.label;
+            button.disabled = isPending;
+        }
+
+        // Cleanup on page unload
+        window.addEventListener('beforeunload', () => {
+            if (refreshInterval) clearInterval(refreshInterval);
+        });
+    </script>
+</body>
+</html>

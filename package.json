@@ -1,0 +1,34 @@
+{
+  "name": "space-trader",
+  "version": "0.1.0",
+  "description": "Galaxy-scale live market simulator with deterministic simulation",
+  "main": "src/local-server.ts",
+  "scripts": {
+    "dev": "tsx watch src/local-server.ts",
+    "local:dev": "tsx watch src/local-server.ts",
+    "local:build": "tsc && node dist/local-server.js",
+    "type-check": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "test:ui": "vitest --ui"
+  },
+  "keywords": [
+    "simulation",
+    "market"
+  ],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/node": "^20.11.0",
+    "@vitest/coverage-v8": "^1.1.0",
+    "better-sqlite3": "^12.5.0",
+    "tsx": "^4.7.0",
+    "typescript": "^5.3.3",
+    "vitest": "^1.1.0"
+  },
+  "dependencies": {
+    "seedrandom": "^3.0.5"
+  }
+}

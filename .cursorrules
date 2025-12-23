@@ -1,0 +1,58 @@
+# Cursor Rules for Space Trader Project
+
+## Documentation Requirements
+
+**CRITICAL: Always keep API documentation updated**
+
+When modifying or adding API endpoints:
+
+1. **Update `src/api-docs.ts`** - This file contains comprehensive documentation for all endpoints that is displayed in the dev interface at `/dev`. Every endpoint must have:
+   - Method and path
+   - Clear description of what it does
+   - Parameters (path, query, or body)
+   - Request body structure (if applicable)
+   - Response structure with examples
+   - Notes about behavior, side effects, or important details
+
+2. **Update the dev interface** - Both `src/index.ts` and `src/local-server.ts` embed the API documentation in the dev interface HTML. When `api-docs.ts` is updated, ensure the dev interface displays it correctly.
+
+3. **Add code comments** - Add JSDoc-style comments to endpoint handler functions explaining:
+   - What the endpoint does
+   - What parameters it expects
+   - What it returns
+   - Any side effects or important behavior
+
+4. **Update README.md** - Keep the API Endpoints section in README.md synchronized with the actual implementation.
+
+## Code Style
+
+- Use TypeScript with strict mode
+- Prefer explicit types over `any`
+- Add JSDoc comments for public functions and classes
+- Keep functions focused and single-purpose
+- Use descriptive variable and function names
+
+## Testing
+
+- Write tests for new features
+- Ensure existing tests pass before committing
+- Test both local server and Cloudflare Worker versions
+
+## File Organization
+
+- `src/api-docs.ts` - API documentation (must be kept updated)
+- `src/index.ts` - Cloudflare Worker entry point
+- `src/local-server.ts` - Local Node.js server entry point
+- `src/star-system.ts` - StarSystem Durable Object
+- `src/ship.ts` - Ship Durable Object
+- `src/types.ts` - TypeScript type definitions
+- `src/goods.ts` - Goods catalog and definitions
+- `src/deterministic-rng.ts` - Deterministic RNG implementation
+
+## Important Reminders
+
+- **Documentation is visible in the dev interface** - Users see it at `/dev`, so it must be accurate and helpful
+- **Both local and Cloudflare versions** - Changes should work in both environments
+- **Deterministic simulation** - All RNG must use deterministic seeds for reproducible results
+- **Non-canonical player actions** - Player trades are experimental and don't affect NPC simulation
+

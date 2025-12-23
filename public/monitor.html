@@ -1,0 +1,2802 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <meta name="theme-color" content="#0b1016">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <title>Space Trader - System Monitor</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <style>
+        :root {
+            --bg: #0b1016;
+            --bg-elevated: #121a24;
+            --panel: #0f1724;
+            --panel-border: rgba(45, 212, 191, 0.3);
+            --panel-glow: rgba(45, 212, 191, 0.15);
+            --text: #e2e8f0;
+            --muted: #93a4b7;
+            --accent: #2dd4bf;
+            --accent-strong: #10b981;
+            --warning: #f59e0b;
+            --danger: #f87171;
+            --info: #60a5fa;
+            --shadow: 0 20px 50px rgba(15, 23, 36, 0.45);
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        html, body {
+            background: #0b1016;
+        }
+
+        body {
+            font-family: "Space Grotesk", sans-serif;
+            background: radial-gradient(circle at top, rgba(45, 212, 191, 0.08), transparent 45%),
+                        radial-gradient(circle at 20% 20%, rgba(96, 165, 250, 0.12), transparent 35%),
+                        linear-gradient(135deg, #0b1016 0%, #0f1724 50%, #0b1016 100%);
+            background-color: #0b1016;
+            color: var(--text);
+            min-height: 100vh;
+            padding: calc(16px + env(safe-area-inset-top)) 16px calc(16px + env(safe-area-inset-bottom));
+        }
+
+        body::before {
+            content: "";
+            position: fixed;
+            inset: 0;
+            background: radial-gradient(circle at 15% 30%, rgba(255, 255, 255, 0.05), transparent 40%),
+                        radial-gradient(circle at 80% 20%, rgba(45, 212, 191, 0.08), transparent 45%);
+            pointer-events: none;
+            z-index: 0;
+        }
+
+        @media (min-width: 900px) {
+            body {
+                padding: 28px;
+            }
+        }
+
+        .app {
+            max-width: 1600px;
+            margin: 0 auto;
+            position: relative;
+            z-index: 1;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        .topbar {
+            background: var(--bg-elevated);
+            border: 1px solid var(--panel-border);
+            border-radius: 16px;
+            padding: 18px;
+            box-shadow: var(--shadow);
+            display: flex;
+            flex-direction: column;
+            gap: 18px;
+        }
+
+        @media (min-width: 900px) {
+            .topbar {
+                flex-direction: row;
+                justify-content: space-between;
+                align-items: center;
+                padding: 22px 26px;
+            }
+        }
+
+        .brand {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        .brand-title {
+            font-size: 24px;
+            font-weight: 700;
+            letter-spacing: 0.5px;
+            color: var(--text);
+        }
+
+        .brand-sub {
+            font-size: 14px;
+            color: var(--muted);
+        }
+
+        .toolbar {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 12px;
+            align-items: flex-end;
+        }
+
+        .field {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        .field label {
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            color: var(--muted);
+        }
+
+        .field input {
+            width: 120px;
+            padding: 10px 12px;
+            background: var(--panel);
+            border: 1px solid rgba(148, 163, 184, 0.4);
+            border-radius: 10px;
+            color: var(--text);
+            font-size: 16px;
+            font-family: "Space Mono", monospace;
+            text-align: center;
+        }
+
+        .field input:focus {
+            outline: none;
+            border-color: var(--accent);
+            box-shadow: 0 0 0 2px rgba(45, 212, 191, 0.2);
+        }
+
+        .btn {
+            border: none;
+            padding: 10px 16px;
+            border-radius: 12px;
+            font-weight: 600;
+            font-size: 14px;
+            cursor: pointer;
+            transition: transform 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
+            font-family: "Space Grotesk", sans-serif;
+        }
+
+        .btn.primary {
+            background: var(--accent);
+            color: #04121a;
+            box-shadow: 0 10px 24px rgba(45, 212, 191, 0.3);
+        }
+
+        .btn.secondary {
+            background: rgba(96, 165, 250, 0.15);
+            color: var(--text);
+            border: 1px solid rgba(96, 165, 250, 0.4);
+        }
+
+        .btn.toggle {
+            background: rgba(245, 158, 11, 0.15);
+            color: var(--text);
+            border: 1px solid rgba(245, 158, 11, 0.4);
+        }
+
+        .btn.toggle.is-on {
+            background: rgba(16, 185, 129, 0.25);
+            border-color: rgba(16, 185, 129, 0.6);
+        }
+
+        .btn:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 12px 28px rgba(15, 23, 36, 0.4);
+        }
+
+        .status-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 12px;
+            border-radius: 999px;
+            border: 1px solid rgba(148, 163, 184, 0.4);
+            color: var(--muted);
+            font-size: 12px;
+        }
+
+        .status-pill.live {
+            border-color: rgba(45, 212, 191, 0.6);
+            color: var(--accent);
+        }
+
+        .status-pill.error {
+            border-color: rgba(248, 113, 113, 0.7);
+            color: var(--danger);
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: currentColor;
+            box-shadow: 0 0 8px currentColor;
+        }
+
+        .meta-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 14px;
+            font-size: 13px;
+            color: var(--muted);
+            padding: 0 4px;
+        }
+
+        .dashboard {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 18px;
+        }
+
+        @media (min-width: 900px) {
+            .dashboard {
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+            }
+        }
+
+        .panel {
+            background: var(--panel);
+            border: 1px solid var(--panel-border);
+            border-radius: 16px;
+            padding: 18px;
+            box-shadow: 0 18px 40px rgba(8, 15, 24, 0.5);
+        }
+
+        .panel.full-width {
+            grid-column: 1 / -1;
+        }
+
+        .panel-header {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            margin-bottom: 14px;
+        }
+
+        .panel-header h2 {
+            font-size: 16px;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            color: var(--accent);
+        }
+
+        .panel-header p {
+            color: var(--muted);
+            font-size: 13px;
+        }
+
+        .system-info {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+            gap: 12px;
+        }
+
+        .info-item {
+            background: rgba(15, 23, 36, 0.7);
+            border-radius: 12px;
+            padding: 12px;
+            border: 1px solid rgba(148, 163, 184, 0.2);
+        }
+
+        .info-label {
+            font-size: 12px;
+            color: var(--muted);
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            margin-bottom: 6px;
+        }
+
+        .info-value {
+            font-size: 18px;
+            font-weight: 600;
+            color: var(--text);
+        }
+
+        .chart-controls {
+            margin-bottom: 12px;
+            padding: 12px;
+            background: rgba(15, 23, 36, 0.6);
+            border: 1px solid rgba(45, 212, 191, 0.2);
+            border-radius: 12px;
+        }
+
+        .chart-controls-title {
+            color: var(--muted);
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            margin-bottom: 10px;
+        }
+
+        #productCheckboxes {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+
+        #productCheckboxes label {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 10px;
+            border-radius: 999px;
+            border: 1px solid rgba(148, 163, 184, 0.4);
+            color: var(--muted);
+            font-size: 11px;
+            cursor: pointer;
+            background: rgba(15, 23, 36, 0.6);
+        }
+
+        #productCheckboxes input {
+            accent-color: var(--accent);
+        }
+
+        .chart-container {
+            position: relative;
+            height: 280px;
+        }
+
+        @media (min-width: 900px) {
+            .chart-container {
+                height: 320px;
+            }
+        }
+
+        #systemMapContainer {
+            position: relative;
+            width: 100%;
+            height: 320px;
+            background: #0a0f16;
+            border: 1px solid rgba(45, 212, 191, 0.4);
+            border-radius: 14px;
+            overflow: hidden;
+        }
+
+        @media (min-width: 900px) {
+            #systemMapContainer {
+                height: 560px;
+            }
+        }
+
+        #mapTooltip {
+            position: absolute;
+            background: rgba(8, 15, 24, 0.95);
+            border: 1px solid rgba(45, 212, 191, 0.5);
+            padding: 10px;
+            border-radius: 10px;
+            color: var(--text);
+            font-size: 12px;
+            pointer-events: none;
+            display: none;
+            z-index: 1000;
+            white-space: pre-line;
+        }
+
+        #localMapContainer {
+            position: relative;
+            width: 100%;
+            height: 320px;
+            background: #0a0f16;
+            border: 1px solid rgba(96, 165, 250, 0.4);
+            border-radius: 14px;
+            overflow: hidden;
+        }
+
+        @media (min-width: 900px) {
+            #localMapContainer {
+                height: 520px;
+            }
+        }
+
+        .radar-sweep {
+            animation: radar-sweep 3.5s linear infinite;
+            transform-origin: center;
+        }
+
+        @keyframes radar-sweep {
+            from {
+                transform: rotate(0deg);
+            }
+            to {
+                transform: rotate(360deg);
+            }
+        }
+
+        #localMapTooltip {
+            position: absolute;
+            background: rgba(8, 15, 24, 0.95);
+            border: 1px solid rgba(96, 165, 250, 0.5);
+            padding: 10px;
+            border-radius: 10px;
+            color: var(--text);
+            font-size: 12px;
+            pointer-events: none;
+            display: none;
+            z-index: 1000;
+            white-space: pre-line;
+        }
+
+        .markets-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 14px;
+            max-height: 520px;
+            overflow-y: auto;
+            padding-right: 6px;
+        }
+
+        .market-card {
+            background: rgba(10, 15, 22, 0.8);
+            border: 1px solid rgba(148, 163, 184, 0.3);
+            border-radius: 14px;
+            padding: 14px;
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+        }
+
+        .market-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 12px 24px rgba(15, 23, 36, 0.3);
+            border-color: rgba(45, 212, 191, 0.5);
+        }
+
+        .market-card.is-selected {
+            border-color: rgba(45, 212, 191, 0.8);
+            box-shadow: 0 0 0 1px rgba(45, 212, 191, 0.3);
+        }
+
+        .market-name {
+            font-size: 15px;
+            font-weight: 600;
+            color: var(--text);
+            margin-bottom: 10px;
+            text-transform: capitalize;
+        }
+
+        .market-stats {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px 12px;
+            font-size: 12px;
+            color: var(--muted);
+        }
+
+        .market-stat strong {
+            color: var(--text);
+        }
+
+        .ships-list {
+            max-height: 560px;
+            overflow-y: auto;
+            padding-right: 6px;
+        }
+
+        .ship-card {
+            background: rgba(10, 15, 22, 0.8);
+            border: 1px solid rgba(148, 163, 184, 0.3);
+            border-radius: 16px;
+            padding: 16px;
+            margin-bottom: 12px;
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+        }
+
+        .ship-card:hover {
+            transform: translateY(-2px);
+            border-color: rgba(45, 212, 191, 0.5);
+        }
+
+        .ship-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 10px;
+        }
+
+        .ship-name {
+            font-size: 16px;
+            font-weight: 600;
+            color: var(--text);
+        }
+
+        .ship-phase {
+            padding: 4px 12px;
+            border-radius: 999px;
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            font-weight: 600;
+        }
+
+        .phase-docked { background: rgba(16, 185, 129, 0.2); color: var(--accent-strong); }
+        .phase-departing { background: rgba(245, 158, 11, 0.2); color: var(--warning); }
+        .phase-hyperspace { background: rgba(96, 165, 250, 0.2); color: var(--info); }
+        .phase-arriving { background: rgba(45, 212, 191, 0.2); color: var(--accent); }
+        .phase-resting { background: rgba(148, 163, 184, 0.2); color: #cbd5f5; }
+        .phase-sleeping { background: rgba(71, 85, 105, 0.35); color: #94a3b8; }
+
+        .ship-stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+            gap: 8px;
+        }
+
+        .ship-stat-label {
+            color: var(--muted);
+            font-size: 10px;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+        }
+
+        .ship-stat-value {
+            color: var(--text);
+            font-size: 14px;
+            font-weight: 600;
+        }
+
+        .cargo-list {
+            margin-top: 12px;
+            padding-top: 10px;
+            border-top: 1px solid rgba(148, 163, 184, 0.2);
+        }
+
+        .cargo-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 4px 0;
+            font-size: 12px;
+            color: var(--muted);
+        }
+
+        .cargo-item strong {
+            color: var(--text);
+        }
+
+        .activity-summary {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 12px;
+            margin-bottom: 12px;
+        }
+
+        .summary-card {
+            background: rgba(15, 23, 36, 0.6);
+            border: 1px solid rgba(45, 212, 191, 0.2);
+            border-radius: 12px;
+            padding: 12px;
+        }
+
+        .summary-label {
+            color: var(--muted);
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+        }
+
+        .summary-value {
+            color: var(--text);
+            font-size: 18px;
+            font-weight: 600;
+        }
+
+        .activity-log {
+            max-height: 380px;
+            overflow-y: auto;
+            padding-right: 6px;
+        }
+
+        .activity-item {
+            padding: 10px 12px;
+            border-radius: 12px;
+            border: 1px solid rgba(148, 163, 184, 0.2);
+            background: rgba(10, 15, 22, 0.8);
+            margin-bottom: 10px;
+            font-size: 12px;
+            color: var(--text);
+        }
+
+        .activity-item strong {
+            color: var(--accent);
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 30px 16px;
+            color: var(--muted);
+            font-style: italic;
+        }
+
+        .insight-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+            gap: 12px;
+        }
+
+        .insight-card {
+            background: rgba(10, 15, 22, 0.85);
+            border: 1px solid rgba(148, 163, 184, 0.25);
+            border-radius: 14px;
+            padding: 12px;
+            min-height: 120px;
+        }
+
+        .insight-title {
+            color: var(--muted);
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            margin-bottom: 8px;
+        }
+
+        .insight-list {
+            display: grid;
+            gap: 6px;
+            font-size: 12px;
+        }
+
+        .insight-item {
+            display: flex;
+            justify-content: space-between;
+            gap: 12px;
+            color: var(--text);
+        }
+
+        .insight-item span {
+            color: var(--muted);
+        }
+
+        .alert-list {
+            display: grid;
+            gap: 10px;
+        }
+
+        .alert-item {
+            padding: 12px;
+            border-radius: 12px;
+            border: 1px solid rgba(248, 113, 113, 0.5);
+            background: rgba(248, 113, 113, 0.08);
+            color: var(--text);
+            font-size: 12px;
+        }
+
+        .alert-item.warning {
+            border-color: rgba(245, 158, 11, 0.6);
+            background: rgba(245, 158, 11, 0.08);
+        }
+
+        .filters {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-bottom: 12px;
+        }
+
+        .filters input {
+            flex: 1 1 200px;
+            padding: 8px 12px;
+            border-radius: 10px;
+            border: 1px solid rgba(148, 163, 184, 0.4);
+            background: rgba(10, 15, 22, 0.8);
+            color: var(--text);
+            font-size: 13px;
+        }
+
+        .filters input:focus {
+            outline: none;
+            border-color: var(--accent);
+            box-shadow: 0 0 0 2px rgba(45, 212, 191, 0.2);
+        }
+
+        .comparison-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 12px;
+        }
+
+        .comparison-card {
+            padding: 12px;
+            border-radius: 12px;
+            border: 1px solid rgba(148, 163, 184, 0.25);
+            background: rgba(10, 15, 22, 0.75);
+            font-size: 12px;
+            color: var(--muted);
+        }
+
+        .comparison-card strong {
+            color: var(--text);
+        }
+
+        .commodity-focus {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 12px;
+        }
+
+        .commodity-card {
+            padding: 12px;
+            border-radius: 12px;
+            border: 1px solid rgba(148, 163, 184, 0.25);
+            background: rgba(10, 15, 22, 0.75);
+        }
+
+        .mono {
+            font-family: "Space Mono", monospace;
+        }
+
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: rgba(15, 23, 36, 0.6);
+            border-radius: 999px;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: rgba(45, 212, 191, 0.6);
+            border-radius: 999px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: rgba(45, 212, 191, 0.9);
+        }
+
+        @media (max-width: 600px) {
+            .toolbar {
+                flex-direction: column;
+                align-items: stretch;
+            }
+
+            .field input {
+                width: 100%;
+            }
+
+            .btn {
+                width: 100%;
+            }
+
+            .ship-header {
+                flex-direction: column;
+                align-items: flex-start;
+            }
+
+            .market-stats {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="app">
+        <header class="topbar">
+            <div class="brand">
+                <div class="brand-title">System Monitor</div>
+                <div class="brand-sub">Live system economics, traffic, and map intelligence.</div>
+            </div>
+            <div class="toolbar">
+                <div class="field">
+                    <label for="systemId">System ID</label>
+                    <input type="number" id="systemId" min="0" max="255" value="0">
+                </div>
+                <button class="btn primary" onclick="loadSystem()">Load System</button>
+                <button class="btn secondary" onclick="loadGalaxyView()">Galaxy View</button>
+                <div class="field">
+                    <label for="compareSystemId">Compare ID</label>
+                    <input type="number" id="compareSystemId" min="0" max="255" placeholder="--">
+                </div>
+                <button class="btn secondary" onclick="loadCompareSystem()">Compare</button>
+                <button class="btn toggle" onclick="toggleAutoRefresh()" id="autoRefreshBtn">Auto refresh: Off</button>
+                <div class="status-pill" id="connectionStatus">
+                    <span class="status-dot"></span>
+                    <span id="connectionStatusText">Disconnected</span>
+                </div>
+            </div>
+        </header>
+
+        <div class="meta-row">
+            <div id="lastUpdated">Last update: --</div>
+            <div>Auto refresh interval: 10s</div>
+        </div>
+
+        <section class="panel full-width" id="galaxyView" style="display: none;">
+            <div class="panel-header">
+                <h2>Galaxy Overview</h2>
+                <p>Ships currently docked across systems, grouped for quick drill-down.</p>
+            </div>
+            <div id="galaxyContent">
+                <div class="empty-state">Loading galaxy data...</div>
+            </div>
+            <div class="panel" style="margin-top: 16px;">
+                <div class="panel-header">
+                    <h2>Ship Density Insights</h2>
+                    <p>Based on cached system populations and known ship counts.</p>
+                </div>
+                <div id="galaxyDensityInsights" class="insight-grid">
+                    <div class="empty-state">Load systems to populate density insights.</div>
+                </div>
+            </div>
+            
+            <section class="panel full-width" style="margin-top: 16px;">
+                <div class="panel-header">
+                    <h2>Galactic Health</h2>
+                    <p>Overall health metrics including population, ship spawns/removals, and trade quality.</p>
+                </div>
+                <div id="galacticHealthContent">
+                    <div class="empty-state">Loading galactic health data...</div>
+                </div>
+            </section>
+            
+            <section class="panel full-width" style="margin-top: 16px;">
+                <div class="panel-header">
+                    <h2>Galaxy Map</h2>
+                    <p>All systems in the galaxy. Click to navigate. Current system highlighted.</p>
+                </div>
+                <div id="galaxyMapContainer" style="position: relative; width: 100%; height: 560px; background: #0a0f16; border: 1px solid rgba(45, 212, 191, 0.4); border-radius: 14px; overflow: hidden;">
+                    <svg id="galaxyMap" width="100%" height="100%" style="display: block;"></svg>
+                    <div id="galaxyMapTooltip" style="position: absolute; background: rgba(8, 15, 24, 0.95); border: 1px solid rgba(45, 212, 191, 0.5); padding: 10px; border-radius: 10px; color: var(--text); font-size: 12px; pointer-events: none; display: none; z-index: 1000; white-space: pre-line;"></div>
+                </div>
+            </section>
+        </section>
+
+        <div class="dashboard" id="systemView">
+            <section class="panel full-width">
+                <div class="panel-header">
+                    <h2>Insights</h2>
+                    <p>Quick signals for market movement, pressure, and imbalance.</p>
+                </div>
+                <div class="insight-grid" id="insightGrid">
+                    <div class="insight-card">
+                        <div class="insight-title">Top Movers (Price %)</div>
+                        <div class="insight-list" id="topMoversList">
+                            <div class="empty-state">Waiting for price history.</div>
+                        </div>
+                    </div>
+                    <div class="insight-card">
+                        <div class="insight-title">Supply Imbalance</div>
+                        <div class="insight-list" id="supplyImbalanceList">
+                            <div class="empty-state">No market data yet.</div>
+                        </div>
+                    </div>
+                    <div class="insight-card">
+                        <div class="insight-title">Trade Pressure</div>
+                        <div class="insight-list" id="tradePressureList">
+                            <div class="empty-state">No activity yet.</div>
+                        </div>
+                    </div>
+                    <div class="insight-card">
+                        <div class="insight-title">Ship Distribution</div>
+                        <div class="insight-list" id="shipDistributionList">
+                            <div class="empty-state">No ship data yet.</div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <section class="panel full-width">
+                <div class="panel-header">
+                    <h2>Issues & Alerts</h2>
+                    <p>Automatic checks for stale ticks, anomalies, and bottlenecks.</p>
+                </div>
+                <div class="alert-list" id="issueList">
+                    <div class="empty-state">No issues detected.</div>
+                </div>
+            </section>
+
+            <section class="panel">
+                <div class="panel-header">
+                    <h2>System Overview</h2>
+                    <p>Core attributes and live tick context.</p>
+                </div>
+                <div class="system-info" id="systemInfo">
+                    <div class="empty-state">Select a system to monitor</div>
+                </div>
+            </section>
+
+            <section class="panel">
+                <div class="panel-header">
+                    <h2>Price Trends</h2>
+                    <p>Track recent price movement by commodity.</p>
+                </div>
+                <div class="chart-controls" id="chartControls">
+                    <div class="chart-controls-title">Select products to display</div>
+                    <div id="productCheckboxes">
+                        <!-- Product checkboxes will be populated here -->
+                    </div>
+                </div>
+                <div class="chart-container">
+                    <canvas id="priceChart"></canvas>
+                </div>
+            </section>
+
+            <section class="panel full-width">
+                <div class="panel-header">
+                    <h2>System Map</h2>
+                    <p>Nearby systems within 30 LY. Hover to inspect travel rings.</p>
+                </div>
+                <div id="systemMapContainer">
+                    <svg id="systemMap" width="100%" height="100%" style="display: block;"></svg>
+                    <div id="mapTooltip"></div>
+                </div>
+            </section>
+
+            <section class="panel full-width">
+                <div class="panel-header">
+                    <h2>Local Space Map</h2>
+                    <p>Objects within 50 SU of the station (0.01 AU per SU).</p>
+                </div>
+                <div id="localMapContainer">
+                    <svg id="localMap" width="100%" height="100%" style="display: block;"></svg>
+                    <div id="localMapTooltip"></div>
+                </div>
+            </section>
+
+            <section class="panel full-width">
+                <div class="panel-header">
+                    <h2>Trading Activity</h2>
+                    <p>Changes detected across the last 10 seconds.</p>
+                </div>
+                <div id="tradingActivity">
+                    <div class="empty-state">No trading activity yet</div>
+                </div>
+            </section>
+
+            <section class="panel full-width">
+                <div class="panel-header">
+                    <h2>Markets</h2>
+                    <p>Live station pricing and inventory snapshots.</p>
+                </div>
+                <div class="filters">
+                    <input type="text" id="marketFilter" placeholder="Filter markets by name or stat...">
+                </div>
+                <div class="markets-grid" id="marketsGrid">
+                    <div class="empty-state">Select a system to view markets</div>
+                </div>
+            </section>
+
+            <section class="panel full-width">
+                <div class="panel-header">
+                    <h2>Commodity Focus</h2>
+                    <p>Click a market card to drill into a commodity.</p>
+                </div>
+                <div class="commodity-focus" id="commodityFocus">
+                    <div class="empty-state">Select a commodity from the markets list.</div>
+                </div>
+            </section>
+
+            <section class="panel full-width">
+                <div class="panel-header">
+                    <h2>System Comparison</h2>
+                    <p>Compare key metrics and price differences against another system.</p>
+                </div>
+                <div class="comparison-grid" id="comparisonGrid">
+                    <div class="empty-state">Load a comparison system to see differences.</div>
+                </div>
+            </section>
+
+            <section class="panel full-width">
+                <div class="panel-header">
+                    <h2>Pilots & Ships</h2>
+                    <p>Active vessels in-system, their states, and cargo.</p>
+                </div>
+                <div class="filters">
+                    <input type="text" id="shipFilter" placeholder="Filter ships by name, phase, or cargo...">
+                </div>
+                <div class="ships-list" id="shipsList">
+                    <div class="empty-state">Select a system to view ships</div>
+                </div>
+            </section>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = window.location.origin;
+        let currentSystemId = 0;
+        let autoRefreshInterval = null;
+        let priceHistory = {};
+        let chartStartTime = null;
+        const MAX_HISTORY_MS = 5 * 60 * 1000;
+        let priceChart = null;
+        let previousMarkets = null;
+        let selectedGoods = new Set();
+        let lastMarkets = null;
+        let lastShips = null;
+        let marketFilterText = "";
+        let shipFilterText = "";
+        let systemCache = new Map();
+        let compareData = null;
+        let selectedCommodity = null;
+        let lastTick = null;
+        let lastTickTime = null;
+        let lastActivitySummary = { buy: 0, sell: 0, net: 0 };
+        let lastAnomalies = [];
+        let lastTransitIssues = 0;
+        const LOCAL_SWEEP_DURATION_MS = 3500;
+        const LOCAL_MAX_SPEED_SU_S = 0.0601;
+        const localMapState = {
+            ships: [],
+            lastUpdateAt: Date.now(),
+            sweepStartAt: Date.now(),
+            animationId: null,
+            sweepAngle: 0
+        };
+
+        const connectionStatus = document.getElementById("connectionStatus");
+        const connectionStatusText = document.getElementById("connectionStatusText");
+        const lastUpdated = document.getElementById("lastUpdated");
+
+        function setConnectionStatus(state, label) {
+            connectionStatus.classList.remove("live", "error");
+            if (state) {
+                connectionStatus.classList.add(state);
+            }
+            connectionStatusText.textContent = label;
+        }
+
+        function updateLastUpdated() {
+            const timeLabel = new Date().toLocaleTimeString();
+            lastUpdated.textContent = `Last update: ${timeLabel}`;
+        }
+
+        function resetSystemState() {
+            priceHistory = {};
+            chartStartTime = null;
+            previousMarkets = null;
+            selectedGoods = new Set();
+            lastMarkets = null;
+            lastShips = null;
+            selectedCommodity = null;
+            lastActivitySummary = { buy: 0, sell: 0, net: 0 };
+            lastAnomalies = [];
+            lastTransitIssues = 0;
+            lastTick = null;
+            lastTickTime = null;
+            const checkboxContainer = document.getElementById("productCheckboxes");
+            if (checkboxContainer) {
+                checkboxContainer.innerHTML = "";
+            }
+            if (priceChart) {
+                priceChart.destroy();
+                priceChart = null;
+            }
+            document.getElementById("commodityFocus").innerHTML =
+                '<div class="empty-state">Select a commodity from the markets list.</div>';
+        }
+
+        function isGalaxyViewActive() {
+            const galaxyView = document.getElementById("galaxyView");
+            return galaxyView && galaxyView.style.display !== "none";
+        }
+
+        function loadSystem() {
+            const systemId = parseInt(document.getElementById("systemId").value);
+            if (isNaN(systemId) || systemId < 0 || systemId > 255) {
+                alert("Invalid system ID (0-255)");
+                return;
+            }
+            if (systemId !== currentSystemId) {
+                resetSystemState();
+            }
+            currentSystemId = systemId;
+            document.getElementById("systemView").style.display = "grid";
+            document.getElementById("galaxyView").style.display = "none";
+            setConnectionStatus("", "Connecting...");
+            fetchSystemData();
+        }
+
+        async function fetchSystemData() {
+            try {
+                const response = await fetch(`${API_BASE}/api/system/${currentSystemId}/monitor`);
+                const data = await response.json();
+
+                updateSystemInfo(data.system);
+                updateTradingActivity(data.markets);
+                updateMarkets(data.markets);
+                updateShips(data.ships);
+                updateLocalMap(data.ships);
+                updatePriceHistory(data.markets);
+                if (data.markets) {
+                    previousMarkets = previousMarkets || data.markets;
+                }
+                updateChart();
+                if (data.nearbySystems) {
+                    updateSystemMap(data.system, data.nearbySystems);
+                }
+                updateGalaxyMap(data.system);
+
+                cacheSystemData(currentSystemId, data);
+                updateInsights();
+                updateIssues();
+                updateComparison();
+                updateCommodityFocus();
+
+                setConnectionStatus("live", "Live data");
+                updateLastUpdated();
+            } catch (error) {
+                console.error("Error fetching system data:", error);
+                setConnectionStatus("error", "Connection error");
+            }
+        }
+
+        function cacheSystemData(systemId, data) {
+            systemCache.set(systemId, {
+                system: data.system,
+                markets: data.markets,
+                ships: data.ships,
+                updatedAt: Date.now()
+            });
+        }
+
+        function updateSystemInfo(system) {
+            const container = document.getElementById("systemInfo");
+            if (system) {
+                if (lastTick === null || system.currentTick !== lastTick) {
+                    lastTick = system.currentTick;
+                    lastTickTime = Date.now();
+                }
+            }
+            container.innerHTML = `
+                <div class="info-item">
+                    <div class="info-label">System Name</div>
+                    <div class="info-value">${system.name || `System ${system.id}`}</div>
+                </div>
+                <div class="info-item">
+                    <div class="info-label">Population</div>
+                    <div class="info-value">${system.population?.toFixed(1) || 0}M</div>
+                </div>
+                <div class="info-item">
+                    <div class="info-label">Tech Level</div>
+                    <div class="info-value">${system.techLevel || 0}</div>
+                </div>
+                <div class="info-item">
+                    <div class="info-label">Government</div>
+                    <div class="info-value">${system.government || "Unknown"}</div>
+                </div>
+                <div class="info-item">
+                    <div class="info-label">Current Tick</div>
+                    <div class="info-value">${system.currentTick || 0}</div>
+                </div>
+            `;
+        }
+
+        function updateSystemMap(system, nearbySystems) {
+            const svg = document.getElementById("systemMap");
+            const tooltip = document.getElementById("mapTooltip");
+            if (!svg || !system || !nearbySystems) return;
+
+            svg.innerHTML = "";
+
+            const width = svg.clientWidth || 800;
+            const height = svg.clientHeight || 600;
+
+            const currentX = system.x ?? 0;
+            const currentY = system.y ?? 0;
+
+            let minX = currentX, maxX = currentX, minY = currentY, maxY = currentY;
+            const VIEW_RANGE_LY = 30;
+            let maxDistance = VIEW_RANGE_LY;
+            nearbySystems.forEach(nearby => {
+                if (nearby.x !== undefined && nearby.y !== undefined) {
+                    minX = Math.min(minX, nearby.x);
+                    maxX = Math.max(maxX, nearby.x);
+                    minY = Math.min(minY, nearby.y);
+                    maxY = Math.max(maxY, nearby.y);
+                } else {
+                    minX = Math.min(minX, currentX - VIEW_RANGE_LY);
+                    maxX = Math.max(maxX, currentX + VIEW_RANGE_LY);
+                    minY = Math.min(minY, currentY - VIEW_RANGE_LY);
+                    maxY = Math.max(maxY, currentY + VIEW_RANGE_LY);
+                }
+                if (nearby.distance && nearby.distance <= VIEW_RANGE_LY) {
+                    maxDistance = Math.max(maxDistance, nearby.distance);
+                }
+            });
+            
+            // Clamp view to 30 LY range
+            minX = Math.max(minX, currentX - VIEW_RANGE_LY);
+            maxX = Math.min(maxX, currentX + VIEW_RANGE_LY);
+            minY = Math.max(minY, currentY - VIEW_RANGE_LY);
+            maxY = Math.min(maxY, currentY + VIEW_RANGE_LY);
+
+            const padding = 20;
+            const rangeX = maxX - minX || 100;
+            const rangeY = maxY - minY || 100;
+            const scaleX = (width - padding * 2) / rangeX;
+            const scaleY = (height - padding * 2) / rangeY;
+            const scale = Math.min(scaleX, scaleY);
+
+            const centerX = width / 2;
+            const centerY = height / 2;
+
+            const worldToScreen = (wx, wy) => {
+                const screenX = centerX + (wx - currentX) * scale;
+                const screenY = centerY + (wy - currentY) * scale;
+                return { x: screenX, y: screenY };
+            };
+
+            // Draw distance rings up to 30 LY
+            for (let dist = 15; dist <= VIEW_RANGE_LY; dist += 15) {
+                const radius = dist * scale;
+                const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+                circle.setAttribute("cx", centerX);
+                circle.setAttribute("cy", centerY);
+                circle.setAttribute("r", radius);
+                circle.setAttribute("fill", "none");
+                circle.setAttribute("stroke", "rgba(45, 212, 191, 0.12)");
+                circle.setAttribute("stroke-width", "1");
+                circle.setAttribute("stroke-dasharray", "6,6");
+                svg.appendChild(circle);
+
+                const text = document.createElementNS("http://www.w3.org/2000/svg", "text");
+                text.setAttribute("x", centerX + radius);
+                text.setAttribute("y", centerY - 4);
+                text.setAttribute("fill", "rgba(226, 232, 240, 0.5)");
+                text.setAttribute("font-size", "10");
+                text.setAttribute("text-anchor", "start");
+                text.textContent = `d=${dist}`;
+                svg.appendChild(text);
+            }
+
+            const hoverRing = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+            hoverRing.setAttribute("id", "hoverRing");
+            hoverRing.setAttribute("fill", "none");
+            hoverRing.setAttribute("stroke", "#2dd4bf");
+            hoverRing.setAttribute("stroke-width", "2");
+            hoverRing.setAttribute("stroke-dasharray", "4,4");
+            hoverRing.setAttribute("opacity", "0");
+            hoverRing.setAttribute("pointer-events", "none");
+            svg.appendChild(hoverRing);
+
+            const currentSystemCircle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+            currentSystemCircle.setAttribute("cx", centerX);
+            currentSystemCircle.setAttribute("cy", centerY);
+            currentSystemCircle.setAttribute("r", "9");
+            currentSystemCircle.setAttribute("fill", "#2dd4bf");
+            currentSystemCircle.setAttribute("stroke", "#0b1016");
+            currentSystemCircle.setAttribute("stroke-width", "2");
+            currentSystemCircle.setAttribute("class", "system-node current-system");
+            svg.appendChild(currentSystemCircle);
+
+            const currentSystemLabel = document.createElementNS("http://www.w3.org/2000/svg", "text");
+            currentSystemLabel.setAttribute("x", centerX);
+            currentSystemLabel.setAttribute("y", centerY - 16);
+            currentSystemLabel.setAttribute("fill", "#e2e8f0");
+            currentSystemLabel.setAttribute("font-size", "14");
+            currentSystemLabel.setAttribute("font-weight", "600");
+            currentSystemLabel.setAttribute("text-anchor", "middle");
+            currentSystemLabel.textContent = `System ${system.id}`;
+            svg.appendChild(currentSystemLabel);
+
+            // Filter and display only systems within 30 LY
+            nearbySystems.filter(nearby => nearby.distance <= VIEW_RANGE_LY).forEach((nearby) => {
+                let nearbyX, nearbyY;
+                if (nearby.x !== undefined && nearby.y !== undefined) {
+                    nearbyX = nearby.x;
+                    nearbyY = nearby.y;
+                } else {
+                    const angle = (nearby.id % 360) * (Math.PI / 180);
+                    nearbyX = currentX + nearby.distance * Math.cos(angle);
+                    nearbyY = currentY + nearby.distance * Math.sin(angle);
+                }
+
+                const screenPos = worldToScreen(nearbyX, nearbyY);
+                const x = screenPos.x;
+                const y = screenPos.y;
+
+                const systemCircle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+                systemCircle.setAttribute("cx", x);
+                systemCircle.setAttribute("cy", y);
+                systemCircle.setAttribute("r", "6");
+                systemCircle.setAttribute("fill", nearby.distance <= 15 ? "#60a5fa" : "rgba(45, 212, 191, 0.65)");
+                systemCircle.setAttribute("stroke", "#0b1016");
+                systemCircle.setAttribute("stroke-width", "1");
+                systemCircle.setAttribute("class", "system-node");
+                systemCircle.setAttribute("data-system-id", nearby.id);
+                systemCircle.setAttribute("data-distance", nearby.distance);
+                systemCircle.style.cursor = "pointer";
+                svg.appendChild(systemCircle);
+
+                const label = document.createElementNS("http://www.w3.org/2000/svg", "text");
+                label.setAttribute("x", x);
+                label.setAttribute("y", y - 10);
+                label.setAttribute("fill", nearby.distance <= 15 ? "#60a5fa" : "rgba(226, 232, 240, 0.75)");
+                label.setAttribute("font-size", "11");
+                label.setAttribute("text-anchor", "middle");
+                label.textContent = nearby.id;
+                svg.appendChild(label);
+
+                const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+                line.setAttribute("x1", centerX);
+                line.setAttribute("y1", centerY);
+                line.setAttribute("x2", x);
+                line.setAttribute("y2", y);
+                line.setAttribute("stroke", "rgba(45, 212, 191, 0.2)");
+                line.setAttribute("stroke-width", "1");
+                line.setAttribute("opacity", "0.4");
+                svg.insertBefore(line, systemCircle);
+
+                systemCircle.addEventListener("mouseenter", (e) => {
+                    const sysId = parseInt(e.target.getAttribute("data-system-id"));
+                    const dist = parseFloat(e.target.getAttribute("data-distance"));
+                    const techLevel = nearby.techLevel !== undefined ? nearby.techLevel : null;
+                    const worldType = nearby.worldType || null;
+
+                    const ringRadius = 15 * scale;
+                    hoverRing.setAttribute("cx", x);
+                    hoverRing.setAttribute("cy", y);
+                    hoverRing.setAttribute("r", ringRadius);
+                    hoverRing.setAttribute("opacity", "0.6");
+
+                    let tooltipText = `System ${sysId}\nDistance: ${dist.toFixed(2)} LY`;
+                    if (techLevel !== null) {
+                        tooltipText += `\nTech Level: ${techLevel}`;
+                    }
+                    if (worldType) {
+                        const worldTypeDisplay = worldType.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+                        tooltipText += `\nWorld Type: ${worldTypeDisplay}`;
+                    }
+                    tooltipText += `\nTravel Range: 15 LY`;
+
+                    tooltip.style.display = "block";
+                    tooltip.textContent = tooltipText;
+                    tooltip.style.left = (e.clientX + 10) + "px";
+                    tooltip.style.top = (e.clientY + 10) + "px";
+                });
+
+                systemCircle.addEventListener("mousemove", (e) => {
+                    tooltip.style.left = (e.clientX + 10) + "px";
+                    tooltip.style.top = (e.clientY + 10) + "px";
+                });
+
+                systemCircle.addEventListener("mouseleave", () => {
+                    hoverRing.setAttribute("opacity", "0");
+                    tooltip.style.display = "none";
+                });
+
+                systemCircle.addEventListener("click", () => {
+                    document.getElementById("systemId").value = nearby.id;
+                    loadSystemById(nearby.id);
+                });
+            });
+        }
+
+        async function updateGalaxyMap(currentSystem) {
+            const svg = document.getElementById("galaxyMap");
+            const tooltip = document.getElementById("galaxyMapTooltip");
+            if (!svg) return;
+
+            try {
+                const response = await fetch(`${API_BASE}/api/galaxy/map`);
+                const data = await response.json();
+                const allSystems = data.systems || [];
+
+                if (allSystems.length === 0) {
+                    svg.innerHTML = '<text x="50%" y="50%" text-anchor="middle" fill="#93a4b7" font-size="14">No systems available</text>';
+                    return;
+                }
+
+                svg.innerHTML = "";
+
+                const width = svg.clientWidth || 800;
+                const height = svg.clientHeight || 560;
+
+                // Calculate bounds
+                let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+                allSystems.forEach(sys => {
+                    minX = Math.min(minX, sys.x);
+                    maxX = Math.max(maxX, sys.x);
+                    minY = Math.min(minY, sys.y);
+                    maxY = Math.max(maxY, sys.y);
+                });
+
+                const padding = 20;
+                const rangeX = maxX - minX || 128;
+                const rangeY = maxY - minY || 128;
+                const scaleX = (width - padding * 2) / rangeX;
+                const scaleY = (height - padding * 2) / rangeY;
+                const scale = Math.min(scaleX, scaleY);
+
+                const centerX = width / 2;
+                const centerY = height / 2;
+                const offsetX = (minX + maxX) / 2;
+                const offsetY = (minY + maxY) / 2;
+
+                const worldToScreen = (wx, wy) => {
+                    const screenX = centerX + (wx - offsetX) * scale;
+                    const screenY = centerY + (wy - offsetY) * scale;
+                    return { x: screenX, y: screenY };
+                };
+
+                // Draw all systems
+                allSystems.forEach((sys) => {
+                    const isCurrent = currentSystemId !== null && sys.id === currentSystemId;
+                    const screenPos = worldToScreen(sys.x, sys.y);
+                    const x = screenPos.x;
+                    const y = screenPos.y;
+
+                    // Skip if outside viewport
+                    if (x < -10 || x > width + 10 || y < -10 || y > height + 10) return;
+
+                    const systemCircle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+                    systemCircle.setAttribute("cx", x);
+                    systemCircle.setAttribute("cy", y);
+                    systemCircle.setAttribute("r", isCurrent ? "5" : "3");
+                    systemCircle.setAttribute("fill", isCurrent ? "#2dd4bf" : "rgba(96, 165, 250, 0.6)");
+                    systemCircle.setAttribute("stroke", isCurrent ? "#0b1016" : "rgba(11, 16, 22, 0.8)");
+                    systemCircle.setAttribute("stroke-width", isCurrent ? "2" : "1");
+                    systemCircle.setAttribute("class", "galaxy-system-node");
+                    systemCircle.setAttribute("data-system-id", sys.id);
+                    systemCircle.style.cursor = "pointer";
+                    if (isCurrent) {
+                        systemCircle.style.filter = "drop-shadow(0 0 8px #2dd4bf)";
+                    }
+                    svg.appendChild(systemCircle);
+
+                    // Add label for current system
+                    if (isCurrent) {
+                        const label = document.createElementNS("http://www.w3.org/2000/svg", "text");
+                        label.setAttribute("x", x);
+                        label.setAttribute("y", y - 10);
+                        label.setAttribute("fill", "#2dd4bf");
+                        label.setAttribute("font-size", "12");
+                        label.setAttribute("font-weight", "600");
+                        label.setAttribute("text-anchor", "middle");
+                        label.textContent = `System ${sys.id}`;
+                        svg.appendChild(label);
+                    }
+
+                    systemCircle.addEventListener("mouseenter", (e) => {
+                        const sysId = parseInt(e.target.getAttribute("data-system-id"));
+                        const system = allSystems.find(s => s.id === sysId);
+                        if (!system) return;
+
+                        let tooltipText = `System ${sysId}`;
+                        if (system.techLevel !== undefined) {
+                            tooltipText += `\nTech Level: ${system.techLevel}`;
+                        }
+                        if (system.worldType) {
+                            const worldTypeDisplay = system.worldType.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+                            tooltipText += `\nWorld Type: ${worldTypeDisplay}`;
+                        }
+                        tooltipText += `\nPosition: (${system.x.toFixed(1)}, ${system.y.toFixed(1)})`;
+
+                        tooltip.style.display = "block";
+                        tooltip.textContent = tooltipText;
+                        tooltip.style.left = (e.clientX + 10) + "px";
+                        tooltip.style.top = (e.clientY + 10) + "px";
+
+                        // Highlight
+                        systemCircle.setAttribute("r", "5");
+                        systemCircle.setAttribute("fill", "#2dd4bf");
+                    });
+
+                    systemCircle.addEventListener("mousemove", (e) => {
+                        tooltip.style.left = (e.clientX + 10) + "px";
+                        tooltip.style.top = (e.clientY + 10) + "px";
+                    });
+
+                    systemCircle.addEventListener("mouseleave", () => {
+                        const sysId = parseInt(systemCircle.getAttribute("data-system-id"));
+                        const isCurrentSys = currentSystemId !== null && sysId === currentSystemId;
+                        systemCircle.setAttribute("r", isCurrentSys ? "5" : "3");
+                        systemCircle.setAttribute("fill", isCurrentSys ? "#2dd4bf" : "rgba(96, 165, 250, 0.6)");
+                        tooltip.style.display = "none";
+                    });
+
+                    systemCircle.addEventListener("click", () => {
+                        document.getElementById("systemId").value = sys.id;
+                        loadSystemById(sys.id);
+                    });
+                });
+            } catch (error) {
+                console.error("Error loading galaxy map:", error);
+                svg.innerHTML = '<text x="50%" y="50%" text-anchor="middle" fill="#f87171" font-size="14">Error loading galaxy map</text>';
+            }
+        }
+
+        function updateLocalMap(ships) {
+            const now = Date.now();
+            const shipsToPlot = (ships || []).filter(ship => ship.positionX !== null && ship.positionY !== null);
+            localMapState.ships = shipsToPlot.map(ship => {
+                const startX = ship.positionX || 0;
+                const startY = ship.positionY || 0;
+                let velocityX = 0;
+                let velocityY = 0;
+                if (ship.phase === "arriving") {
+                    const distance = Math.sqrt(startX * startX + startY * startY);
+                    if (distance > 0.01) {
+                        const unitX = -startX / distance;
+                        const unitY = -startY / distance;
+                        velocityX = unitX * LOCAL_MAX_SPEED_SU_S;
+                        velocityY = unitY * LOCAL_MAX_SPEED_SU_S;
+                    }
+                }
+                return {
+                    id: ship.id,
+                    name: ship.name,
+                    phase: ship.phase,
+                    isNPC: ship.isNPC,
+                    startX,
+                    startY,
+                    velocityX,
+                    velocityY,
+                    displayX: startX,
+                    displayY: startY
+                };
+            });
+            localMapState.lastUpdateAt = now;
+            if (!localMapState.animationId) {
+                localMapState.sweepStartAt = now;
+                localMapState.animationId = requestAnimationFrame(renderLocalMapFrame);
+            }
+        }
+
+        function renderLocalMapFrame(timestamp) {
+            const svg = document.getElementById("localMap");
+            const tooltip = document.getElementById("localMapTooltip");
+            if (!svg) {
+                localMapState.animationId = null;
+                return;
+            }
+
+            const now = Date.now();
+            const elapsed = Math.max(0, (now - localMapState.lastUpdateAt) / 1000);
+            const width = svg.clientWidth || 800;
+            const height = svg.clientHeight || 520;
+            const centerX = width / 2;
+            const centerY = height / 2;
+            const padding = 20;
+            const range = 50;
+            const scale = (Math.min(width, height) / 2 - padding) / range;
+
+            const sweepProgress = ((now - localMapState.sweepStartAt) % LOCAL_SWEEP_DURATION_MS) / LOCAL_SWEEP_DURATION_MS;
+            const sweepAngle = sweepProgress * Math.PI * 2;
+            const sweepWindow = (Math.PI * 2) / (LOCAL_SWEEP_DURATION_MS / 16);
+
+            svg.innerHTML = "";
+
+            const ring = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+            ring.setAttribute("cx", centerX);
+            ring.setAttribute("cy", centerY);
+            ring.setAttribute("r", String(range * scale));
+            ring.setAttribute("fill", "none");
+            ring.setAttribute("stroke", "rgba(96, 165, 250, 0.2)");
+            ring.setAttribute("stroke-width", "1");
+            ring.setAttribute("stroke-dasharray", "6,6");
+            svg.appendChild(ring);
+
+            const sweep = document.createElementNS("http://www.w3.org/2000/svg", "line");
+            const sweepX = centerX + Math.sin(sweepAngle) * range * scale;
+            const sweepY = centerY - Math.cos(sweepAngle) * range * scale;
+            sweep.setAttribute("x1", centerX);
+            sweep.setAttribute("y1", centerY);
+            sweep.setAttribute("x2", sweepX);
+            sweep.setAttribute("y2", sweepY);
+            sweep.setAttribute("stroke", "rgba(96, 165, 250, 0.5)");
+            sweep.setAttribute("stroke-width", "2");
+            svg.appendChild(sweep);
+
+            const station = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+            station.setAttribute("cx", centerX);
+            station.setAttribute("cy", centerY);
+            station.setAttribute("r", "6");
+            station.setAttribute("fill", "#60a5fa");
+            station.setAttribute("stroke", "#0b1016");
+            station.setAttribute("stroke-width", "2");
+            svg.appendChild(station);
+
+            localMapState.ships.forEach(ship => {
+                let predictedX = ship.startX + ship.velocityX * elapsed;
+                let predictedY = ship.startY + ship.velocityY * elapsed;
+                let distance = Math.sqrt(predictedX * predictedX + predictedY * predictedY);
+                if (distance <= 0.2) {
+                    predictedX = 0;
+                    predictedY = 0;
+                    distance = 0;
+                }
+
+                const angle = Math.atan2(predictedX, -predictedY);
+                let delta = Math.abs(angle - sweepAngle);
+                if (delta > Math.PI) {
+                    delta = Math.abs(delta - Math.PI * 2);
+                }
+                if (delta <= sweepWindow) {
+                    ship.displayX = predictedX;
+                    ship.displayY = predictedY;
+                }
+
+                const x = ship.displayX;
+                const y = ship.displayY;
+                distance = Math.sqrt(x * x + y * y);
+                if (distance > range) {
+                    return;
+                }
+                const screenX = centerX + x * scale;
+                const screenY = centerY + y * scale;
+                const color = ship.isNPC ? "#2dd4bf" : "#f59e0b";
+                const node = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+                node.setAttribute("cx", screenX);
+                node.setAttribute("cy", screenY);
+                node.setAttribute("r", "4");
+                node.setAttribute("fill", color);
+                node.setAttribute("stroke", "#0b1016");
+                node.setAttribute("stroke-width", "1");
+                node.style.cursor = "pointer";
+                svg.appendChild(node);
+
+                node.addEventListener("mouseenter", (e) => {
+                    tooltip.style.display = "block";
+                    tooltip.textContent = `${ship.name || ship.id}\nPhase: ${ship.phase}\nDistance: ${distance.toFixed(1)} SU`;
+                    tooltip.style.left = (e.clientX + 10) + "px";
+                    tooltip.style.top = (e.clientY + 10) + "px";
+                });
+
+                node.addEventListener("mousemove", (e) => {
+                    tooltip.style.left = (e.clientX + 10) + "px";
+                    tooltip.style.top = (e.clientY + 10) + "px";
+                });
+
+                node.addEventListener("mouseleave", () => {
+                    tooltip.style.display = "none";
+                });
+            });
+
+            localMapState.animationId = requestAnimationFrame(renderLocalMapFrame);
+        }
+
+        function updateTradingActivity(markets) {
+            const container = document.getElementById("tradingActivity");
+
+            if (!previousMarkets) {
+                previousMarkets = JSON.parse(JSON.stringify(markets));
+                container.innerHTML = '<div class="empty-state">No previous data to compare</div>';
+                return;
+            }
+
+            const changes = [];
+            let totalQuantityChange = 0;
+            let totalPriceChange = 0;
+            let buyPressure = 0;
+            let sellPressure = 0;
+            const anomalies = [];
+
+            Object.keys(markets).forEach(goodId => {
+                const current = markets[goodId];
+                const previous = previousMarkets[goodId];
+
+                if (!previous) {
+                    changes.push({
+                        goodId,
+                        type: "new",
+                        inventory: current.inventory || 0,
+                        price: current.price || 0
+                    });
+                    totalQuantityChange += current.inventory || 0;
+                    return;
+                }
+
+                const inventoryDiff = (current.inventory || 0) - (previous.inventory || 0);
+                const priceDiff = (current.price || 0) - (previous.price || 0);
+                const pricePercent = previous.price > 0 ? ((priceDiff / previous.price) * 100).toFixed(2) : 0;
+                const inventoryPercent = previous.inventory > 0 ? ((inventoryDiff / previous.inventory) * 100) : 0;
+
+                // Only show changes that would display as non-zero after rounding
+                // Inventory rounds to 0 decimals, so threshold is 0.5
+                // Price rounds to 2 decimals, so threshold is 0.005
+                const inventoryChangeVisible = Math.abs(inventoryDiff) >= 0.5;
+                const priceChangeVisible = Math.abs(priceDiff) >= 0.005;
+
+                if (inventoryChangeVisible || priceChangeVisible) {
+                    changes.push({
+                        goodId,
+                        type: inventoryChangeVisible ? (inventoryDiff > 0 ? "bought" : "sold") : "price_only",
+                        inventoryDiff,
+                        priceDiff,
+                        pricePercent,
+                        currentInventory: current.inventory || 0,
+                        previousInventory: previous.inventory || 0,
+                        currentPrice: current.price || 0,
+                        previousPrice: previous.price || 0
+                    });
+                    // Only count visible changes in totals
+                    if (inventoryChangeVisible) {
+                        totalQuantityChange += Math.abs(inventoryDiff);
+                    }
+                    if (priceChangeVisible) {
+                        totalPriceChange += Math.abs(priceDiff);
+                    }
+                }
+
+                if (inventoryDiff > 0) {
+                    buyPressure += Math.abs(inventoryDiff);
+                } else if (inventoryDiff < 0) {
+                    sellPressure += Math.abs(inventoryDiff);
+                }
+
+                if (Math.abs(pricePercent) > 50 || Math.abs(inventoryPercent) > 50 || Math.abs(inventoryDiff) > 100) {
+                    anomalies.push(`${goodId.toUpperCase()}: price ${pricePercent}% inventory ${inventoryDiff.toFixed(0)}`);
+                }
+            });
+
+            Object.keys(previousMarkets).forEach(goodId => {
+                if (!markets[goodId]) {
+                    changes.push({
+                        goodId,
+                        type: "removed",
+                        inventory: previousMarkets[goodId].inventory || 0,
+                        price: previousMarkets[goodId].price || 0
+                    });
+                }
+            });
+
+            previousMarkets = JSON.parse(JSON.stringify(markets));
+            lastActivitySummary = {
+                buy: buyPressure,
+                sell: sellPressure,
+                net: buyPressure - sellPressure
+            };
+            lastAnomalies = anomalies;
+
+            if (changes.length === 0) {
+                container.innerHTML = '<div class="empty-state">No trading activity in the last 10 seconds</div>';
+                return;
+            }
+
+            const changesHtml = changes.map(change => {
+                if (change.type === "new") {
+                    return `
+                        <div class="activity-item">
+                            <strong>${change.goodId.toUpperCase()}</strong>: New market (${change.inventory.toFixed(0)} units @ ${change.price.toFixed(2)} cr)
+                        </div>
+                    `;
+                }
+                if (change.type === "removed") {
+                    return `
+                        <div class="activity-item" style="border-color: rgba(248, 113, 113, 0.5);">
+                            <strong>${change.goodId.toUpperCase()}</strong>: Market removed
+                        </div>
+                    `;
+                }
+
+                const inventoryChange = change.inventoryDiff > 0 ? "+" : "";
+                const priceChange = change.priceDiff > 0 ? "+" : "";
+                const priceColor = change.priceDiff > 0 ? "#f87171" : change.priceDiff < 0 ? "#2dd4bf" : "#94a3b8";
+                const inventoryColor = change.inventoryDiff > 0 ? "#60a5fa" : "#f59e0b";
+                const inventoryChangeVisible = Math.abs(change.inventoryDiff) >= 0.5;
+                const priceChangeVisible = Math.abs(change.priceDiff) >= 0.005;
+
+                let inventoryText = "";
+                if (inventoryChangeVisible && change.type !== "price_only") {
+                    inventoryText = `
+                        ${change.type === "bought" ? "Station BOUGHT" : "Station SOLD"}
+                        <span style="color: ${inventoryColor};">${inventoryChange}${Math.abs(change.inventoryDiff).toFixed(0)}</span> units
+                        (${change.previousInventory.toFixed(0)} -> ${change.currentInventory.toFixed(0)})
+                    `;
+                } else {
+                    inventoryText = `Inventory: ${change.currentInventory.toFixed(0)} units (no change)`;
+                }
+
+                let priceText = "";
+                if (priceChangeVisible) {
+                    priceText = `
+                        Price: <span style="color: ${priceColor};">${priceChange}${change.priceDiff.toFixed(2)}</span> cr
+                        (${change.previousPrice.toFixed(2)} -> ${change.currentPrice.toFixed(2)} cr, ${change.pricePercent}%)
+                    `;
+                } else {
+                    priceText = `Price: ${change.currentPrice.toFixed(2)} cr (no change)`;
+                }
+
+                return `
+                    <div class="activity-item" style="border-color: ${inventoryChangeVisible ? inventoryColor : priceColor};">
+                        <strong>${change.goodId.toUpperCase()}</strong>:
+                        ${inventoryText}
+                        <br>
+                        ${priceText}
+                    </div>
+                `;
+            }).join("");
+
+            container.innerHTML = `
+                <div class="activity-summary">
+                    <div class="summary-card">
+                        <div class="summary-label">Total Quantity Change</div>
+                        <div class="summary-value">${totalQuantityChange.toFixed(0)} units</div>
+                    </div>
+                    <div class="summary-card">
+                        <div class="summary-label">Total Price Change</div>
+                        <div class="summary-value">${totalPriceChange.toFixed(2)} cr</div>
+                    </div>
+                    <div class="summary-card">
+                        <div class="summary-label">Markets Changed</div>
+                        <div class="summary-value">${changes.length}</div>
+                    </div>
+                </div>
+                <div class="activity-log">
+                    ${changesHtml}
+                </div>
+            `;
+        }
+
+        function updateMarkets(markets) {
+            const container = document.getElementById("marketsGrid");
+
+            if (!markets || Object.keys(markets).length === 0) {
+                container.innerHTML = '<div class="empty-state">No markets available</div>';
+                lastMarkets = null;
+                return;
+            }
+
+            lastMarkets = markets;
+
+            if (!previousMarkets) {
+                previousMarkets = {};
+            }
+            Object.assign(previousMarkets, markets);
+
+            updateProductCheckboxes(markets);
+
+            const filter = marketFilterText.trim().toLowerCase();
+            container.innerHTML = "";
+            Object.entries(markets).forEach(([goodId, market]) => {
+                const label = goodId.toLowerCase();
+                const textBlob = `${label} ${market.price} ${market.inventory} ${market.production} ${market.consumption}`;
+                if (filter && !textBlob.includes(filter)) {
+                    return;
+                }
+                const card = document.createElement("div");
+                card.className = "market-card";
+                if (selectedCommodity === goodId) {
+                    card.classList.add("is-selected");
+                }
+                card.innerHTML = `
+                    <div class="market-name">${goodId.charAt(0).toUpperCase() + goodId.slice(1)}</div>
+                    <div class="market-stats">
+                        <div class="market-stat">
+                            <strong>Price:</strong> ${market.price?.toFixed(2) || 0} cr
+                        </div>
+                        <div class="market-stat">
+                            <strong>Inventory:</strong> ${market.inventory?.toFixed(0) || 0}
+                        </div>
+                        <div class="market-stat">
+                            <strong>Production:</strong> ${market.production?.toFixed(2) || 0}/tick
+                        </div>
+                        <div class="market-stat">
+                            <strong>Consumption:</strong> ${market.consumption?.toFixed(2) || 0}/tick
+                        </div>
+                    </div>
+                `;
+                card.addEventListener("click", () => {
+                    selectedCommodity = goodId;
+                    updateMarkets(lastMarkets);
+                    updateCommodityFocus();
+                });
+                container.appendChild(card);
+            });
+        }
+
+        function updateShips(ships) {
+            const container = document.getElementById("shipsList");
+
+            if (!ships || ships.length === 0) {
+                container.innerHTML = '<div class="empty-state">No ships in system</div>';
+                lastShips = null;
+                lastTransitIssues = 0;
+                return;
+            }
+
+            lastShips = ships;
+            container.innerHTML = "";
+            const now = Date.now();
+            let overdueArrivals = 0;
+
+            const filter = shipFilterText.trim().toLowerCase();
+
+            ships.forEach(ship => {
+                const textBlob = `${ship.name || ship.id} ${ship.phase} ${ship.isNPC ? "npc" : "player"} ${ship.destinationSystem || ""} ${ship.currentSystem || ""} ${Object.keys(ship.cargo || {}).join(" ")}`.toLowerCase();
+                if (filter && !textBlob.includes(filter)) {
+                    return;
+                }
+
+                const card = document.createElement("div");
+                card.className = "ship-card";
+
+                const phaseClass = `phase-${ship.phase?.replace("_", "-") || "docked"}`;
+                const phaseLabel = ship.phase?.replace("_", " ").toUpperCase() || "DOCKED";
+
+                let etaText = "";
+                let etaColor = "#f59e0b";
+
+                if (ship.phase === "departing" && ship.departureStartTime) {
+                    const departureEnd = ship.departureStartTime + 10000;
+                    const remaining = Math.max(0, departureEnd - now);
+                    if (remaining > 0) {
+                        etaText = `Departing in: ${(remaining / 1000).toFixed(1)}s`;
+                        etaColor = "#f59e0b";
+                    } else {
+                        etaText = "Entering hyperspace...";
+                    }
+                } else if (ship.phase === "arriving" && ship.arrivalCompleteTime) {
+                    const remaining = ship.arrivalCompleteTime - now;
+                    if (remaining > 0) {
+                        const seconds = Math.floor(remaining / 1000);
+                        const minutes = Math.floor(seconds / 60);
+                        etaText = `Arriving in: ${minutes > 0 ? minutes + "m " : ""}${seconds % 60}s`;
+                        etaColor = "#60a5fa";
+                    } else {
+                        const overdue = Math.abs(remaining);
+                        const overdueSeconds = Math.floor(overdue / 1000);
+                        if (overdueSeconds < 5) {
+                            etaText = "Arriving now...";
+                            etaColor = "#60a5fa";
+                        } else {
+                            etaText = `Overdue ${overdueSeconds}s (needs tick)`;
+                            etaColor = "#f87171";
+                            overdueArrivals += 1;
+                        }
+                    }
+                } else if (ship.phase === "in_hyperspace" && ship.destinationSystem !== null) {
+                    if (ship.destinationSystem === currentSystemId) {
+                        etaText = "In hyperspace - arriving soon";
+                        etaColor = "#60a5fa";
+                    } else if (ship.currentSystem === currentSystemId) {
+                        etaText = `In hyperspace to System ${ship.destinationSystem}`;
+                        etaColor = "#60a5fa";
+                    }
+                } else if (ship.phase === "resting" && ship.restEndTime) {
+                    const remaining = Math.max(0, ship.restEndTime - now);
+                    if (remaining > 0) {
+                        const minutes = Math.floor(remaining / 60000);
+                        const hours = Math.floor(minutes / 60);
+                        etaText = `Resting until: ${hours > 0 ? hours + "h " : ""}${minutes % 60}m`;
+                        etaColor = "#cbd5f5";
+                    }
+                } else if (ship.phase === "sleeping" && ship.restEndTime) {
+                    const remaining = Math.max(0, ship.restEndTime - now);
+                    if (remaining > 0) {
+                        const hours = Math.floor(remaining / 3600000);
+                        const minutes = Math.floor((remaining % 3600000) / 60000);
+                        etaText = `Sleeping until: ${hours}h ${minutes}m`;
+                        etaColor = "#94a3b8";
+                    }
+                }
+
+                const cargoItems = Object.entries(ship.cargo || {})
+                    .filter(([_, qty]) => qty > 0)
+                    .map(([good, qty]) => `<div class="cargo-item"><strong>${good}:</strong> ${qty}</div>`)
+                    .join("");
+
+                const cargoTotal = Object.values(ship.cargo || {}).reduce((sum, qty) => sum + (qty || 0), 0);
+                const cargoCapacity = 100;
+                const positionText = ship.positionX !== null && ship.positionY !== null
+                    ? `${ship.positionX.toFixed(1)} SU, ${ship.positionY.toFixed(1)} SU`
+                    : "—";
+
+                card.innerHTML = `
+                    <div class="ship-header">
+                        <div class="ship-name">${ship.name || ship.id}</div>
+                        <div class="ship-phase ${phaseClass}">${phaseLabel}</div>
+                    </div>
+                    <div class="ship-stats">
+                        <div class="ship-stat">
+                            <div class="ship-stat-label">Credits</div>
+                            <div class="ship-stat-value">${ship.credits?.toLocaleString() || 0} cr</div>
+                        </div>
+                        <div class="ship-stat">
+                            <div class="ship-stat-label">Type</div>
+                            <div class="ship-stat-value">${ship.isNPC ? "NPC" : "Player"}</div>
+                        </div>
+                        <div class="ship-stat">
+                            <div class="ship-stat-label">Cargo</div>
+                            <div class="ship-stat-value">${cargoTotal}/${cargoCapacity}</div>
+                        </div>
+                        <div class="ship-stat">
+                            <div class="ship-stat-label">Position</div>
+                            <div class="ship-stat-value">${positionText}</div>
+                        </div>
+                        ${ship.destinationSystem !== null ? `
+                        <div class="ship-stat">
+                            <div class="ship-stat-label">Destination</div>
+                            <div class="ship-stat-value">System ${ship.destinationSystem}</div>
+                        </div>
+                        ` : ""}
+                        ${etaText ? `
+                        <div class="ship-stat" style="grid-column: 1 / -1;">
+                            <div class="ship-stat-label">Status</div>
+                            <div class="ship-stat-value" style="color: ${etaColor};">${etaText}</div>
+                        </div>
+                        ` : ""}
+                        ${ship.currentSystem !== currentSystemId && ship.destinationSystem === currentSystemId ? `
+                        <div class="ship-stat" style="grid-column: 1 / -1;">
+                            <div class="ship-stat-label">Origin</div>
+                            <div class="ship-stat-value" style="color: #93a4b7;">System ${ship.currentSystem}</div>
+                        </div>
+                        ` : ""}
+                    </div>
+                    ${cargoItems ? `
+                    <div class="cargo-list">
+                        <div style="color: #93a4b7; font-size: 11px; margin-bottom: 5px; text-transform: uppercase; letter-spacing: 0.08em;">Cargo</div>
+                        ${cargoItems}
+                    </div>
+                    ` : ""}
+                `;
+                container.appendChild(card);
+            });
+
+            lastTransitIssues = overdueArrivals;
+        }
+
+        function updatePriceHistory(markets) {
+            const now = Date.now();
+            if (!chartStartTime) {
+                chartStartTime = now;
+            }
+
+            const cutoff = now - MAX_HISTORY_MS;
+            Object.keys(priceHistory).forEach(goodId => {
+                priceHistory[goodId] = priceHistory[goodId].filter(entry => entry.time >= cutoff);
+            });
+
+            Object.entries(markets).forEach(([goodId, market]) => {
+                if (!priceHistory[goodId]) {
+                    priceHistory[goodId] = [];
+                }
+                priceHistory[goodId].push({
+                    time: now,
+                    price: market.price || 0
+                });
+            });
+        }
+
+        const goodColors = [
+            "#2dd4bf", "#60a5fa", "#f59e0b", "#f87171", "#34d399",
+            "#f97316", "#22d3ee", "#a3e635", "#fb7185", "#c084fc",
+            "#38bdf8", "#eab308", "#f472b6", "#94a3b8", "#4ade80"
+        ];
+
+        function getGoodColor(goodId, index) {
+            return goodColors[index % goodColors.length];
+        }
+
+        function updateProductCheckboxes(markets) {
+            const container = document.getElementById("productCheckboxes");
+            if (!container) return;
+
+            const allGoods = Object.keys(markets).sort();
+
+            if (selectedGoods.size === 0) {
+                allGoods.forEach(goodId => selectedGoods.add(goodId));
+            }
+
+            container.innerHTML = allGoods.map(goodId => {
+                const isChecked = selectedGoods.has(goodId);
+                return `
+                    <label style="border-color: ${isChecked ? "rgba(45, 212, 191, 0.6)" : "rgba(148, 163, 184, 0.4)"}; color: ${isChecked ? "#e2e8f0" : "#93a4b7"}; background: ${isChecked ? "rgba(45, 212, 191, 0.15)" : "rgba(15, 23, 36, 0.6)"};">
+                        <input type="checkbox" ${isChecked ? "checked" : ""}
+                               onchange="toggleProductChart('${goodId}', this.checked)">
+                        ${goodId.charAt(0).toUpperCase() + goodId.slice(1)}
+                    </label>
+                `;
+            }).join("");
+        }
+
+        function toggleProductChart(goodId, isSelected) {
+            if (isSelected) {
+                selectedGoods.add(goodId);
+            } else {
+                selectedGoods.delete(goodId);
+            }
+            updateChart();
+            const currentMarkets = previousMarkets || {};
+            updateProductCheckboxes(currentMarkets);
+        }
+
+        function updateChart() {
+            const ctx = document.getElementById("priceChart").getContext("2d");
+
+            const goodsWithHistory = Object.keys(priceHistory).filter(
+                goodId => selectedGoods.has(goodId) && priceHistory[goodId] && priceHistory[goodId].length > 0
+            );
+
+            if (goodsWithHistory.length === 0) {
+                if (priceChart) {
+                    priceChart.destroy();
+                    priceChart = null;
+                }
+                return;
+            }
+
+            const longestHistory = goodsWithHistory.reduce((longest, goodId) => {
+                return priceHistory[goodId].length > longest.length ? priceHistory[goodId] : longest;
+            }, priceHistory[goodsWithHistory[0]]);
+
+            const labels = longestHistory.map(entry => {
+                const date = new Date(entry.time);
+                return date.toLocaleTimeString();
+            });
+
+            const datasets = goodsWithHistory.map((goodId, index) => {
+                const history = priceHistory[goodId];
+                const color = getGoodColor(goodId, index);
+
+                const data = labels.map((label, i) => {
+                    const labelTime = longestHistory[i]?.time;
+                    const matchingEntry = history.find(entry => entry.time === labelTime);
+                    return matchingEntry ? matchingEntry.price : null;
+                });
+
+                return {
+                    label: goodId.charAt(0).toUpperCase() + goodId.slice(1),
+                    data: data,
+                    borderColor: color,
+                    backgroundColor: color.replace(")", ", 0.1)").replace("rgb", "rgba"),
+                    borderWidth: 2,
+                    fill: false,
+                    tension: 0.35,
+                    pointRadius: 0,
+                    pointHoverRadius: 4
+                };
+            });
+
+            const chartData = {
+                labels: labels,
+                datasets: datasets
+            };
+
+            if (priceChart) {
+                priceChart.destroy();
+            }
+
+            priceChart = new Chart(ctx, {
+                type: "line",
+                data: chartData,
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    interaction: {
+                        mode: "index",
+                        intersect: false
+                    },
+                    plugins: {
+                        legend: {
+                            display: true,
+                            position: "right",
+                            labels: {
+                                color: "#cbd5f5",
+                                font: {
+                                    size: 11,
+                                    family: "Space Grotesk, sans-serif"
+                                },
+                                padding: 8,
+                                usePointStyle: true
+                            }
+                        },
+                        tooltip: {
+                            backgroundColor: "rgba(8, 15, 24, 0.9)",
+                            titleColor: "#e2e8f0",
+                            bodyColor: "#cbd5f5",
+                            borderColor: "rgba(45, 212, 191, 0.6)",
+                            borderWidth: 1,
+                            padding: 10,
+                            displayColors: true
+                        }
+                    },
+                    scales: {
+                        x: {
+                            ticks: {
+                                color: "#93a4b7",
+                                maxTicksLimit: 10
+                            },
+                            grid: {
+                                color: "rgba(148, 163, 184, 0.15)",
+                                drawBorder: true,
+                                borderColor: "rgba(45, 212, 191, 0.4)"
+                            }
+                        },
+                        y: {
+                            ticks: {
+                                color: "#93a4b7"
+                            },
+                            grid: {
+                                color: "rgba(148, 163, 184, 0.15)",
+                                drawBorder: true,
+                                borderColor: "rgba(45, 212, 191, 0.4)"
+                            },
+                            beginAtZero: false
+                        }
+                    }
+                }
+            });
+        }
+
+        function updateInsights() {
+            updateTopMovers();
+            updateSupplyImbalance();
+            updateTradePressure();
+            updateShipDistribution();
+        }
+
+        function updateTopMovers() {
+            const container = document.getElementById("topMoversList");
+            const movers = Object.entries(priceHistory)
+                .map(([goodId, history]) => {
+                    if (history.length < 2) return null;
+                    const first = history[0].price;
+                    const last = history[history.length - 1].price;
+                    const change = first > 0 ? ((last - first) / first) * 100 : 0;
+                    return { goodId, change };
+                })
+                .filter(Boolean)
+                .sort((a, b) => Math.abs(b.change) - Math.abs(a.change))
+                .slice(0, 5);
+
+            if (movers.length === 0) {
+                container.innerHTML = '<div class="empty-state">Waiting for price history.</div>';
+                return;
+            }
+
+            container.innerHTML = movers.map(item => `
+                <div class="insight-item">
+                    <strong>${item.goodId.toUpperCase()}</strong>
+                    <span>${item.change.toFixed(1)}%</span>
+                </div>
+            `).join("");
+        }
+
+        function updateSupplyImbalance() {
+            const container = document.getElementById("supplyImbalanceList");
+            if (!lastMarkets) {
+                container.innerHTML = '<div class="empty-state">No market data yet.</div>';
+                return;
+            }
+
+            const imbalances = Object.entries(lastMarkets)
+                .map(([goodId, market]) => {
+                    const production = market.production || 0;
+                    const consumption = market.consumption || 0;
+                    const net = production - consumption;
+                    return { goodId, net };
+                })
+                .sort((a, b) => Math.abs(b.net) - Math.abs(a.net))
+                .slice(0, 5);
+
+            if (imbalances.length === 0) {
+                container.innerHTML = '<div class="empty-state">No imbalance data.</div>';
+                return;
+            }
+
+            container.innerHTML = imbalances.map(item => `
+                <div class="insight-item">
+                    <strong>${item.goodId.toUpperCase()}</strong>
+                    <span>${item.net > 0 ? "+" : ""}${item.net.toFixed(2)}/tick</span>
+                </div>
+            `).join("");
+        }
+
+        function updateTradePressure() {
+            const container = document.getElementById("tradePressureList");
+            container.innerHTML = `
+                <div class="insight-item">
+                    <strong>Buy pressure</strong>
+                    <span>${lastActivitySummary.buy.toFixed(0)} units</span>
+                </div>
+                <div class="insight-item">
+                    <strong>Sell pressure</strong>
+                    <span>${lastActivitySummary.sell.toFixed(0)} units</span>
+                </div>
+                <div class="insight-item">
+                    <strong>Net flow</strong>
+                    <span>${lastActivitySummary.net.toFixed(0)} units</span>
+                </div>
+            `;
+        }
+
+        function updateShipDistribution() {
+            const container = document.getElementById("shipDistributionList");
+            if (!lastShips) {
+                container.innerHTML = '<div class="empty-state">No ship data yet.</div>';
+                return;
+            }
+
+            const phaseCounts = {};
+            lastShips.forEach(ship => {
+                const phase = ship.phase || "unknown";
+                phaseCounts[phase] = (phaseCounts[phase] || 0) + 1;
+            });
+
+            const items = Object.entries(phaseCounts)
+                .sort((a, b) => b[1] - a[1])
+                .slice(0, 5);
+
+            container.innerHTML = items.map(([phase, count]) => `
+                <div class="insight-item">
+                    <strong>${phase.replace("_", " ").toUpperCase()}</strong>
+                    <span>${count}</span>
+                </div>
+            `).join("");
+        }
+
+        function updateIssues() {
+            const container = document.getElementById("issueList");
+            const issues = [];
+
+            if (lastTickTime && Date.now() - lastTickTime > 25000) {
+                issues.push({
+                    type: "warning",
+                    text: "Current tick has not advanced in 25s. Check server activity or data collection."
+                });
+            }
+
+            if (lastAnomalies.length > 0) {
+                issues.push({
+                    type: "danger",
+                    text: `Market anomalies detected: ${lastAnomalies.slice(0, 3).join(" | ")}`
+                });
+            }
+
+            if (lastTransitIssues > 0) {
+                issues.push({
+                    type: "warning",
+                    text: `${lastTransitIssues} ships show overdue arrivals. Possible tick backlog.`
+                });
+            }
+
+            if (issues.length === 0) {
+                container.innerHTML = '<div class="empty-state">No issues detected.</div>';
+                return;
+            }
+
+            container.innerHTML = issues.map(issue => `
+                <div class="alert-item ${issue.type === "warning" ? "warning" : ""}">
+                    ${issue.text}
+                </div>
+            `).join("");
+        }
+
+        function updateCommodityFocus() {
+            const container = document.getElementById("commodityFocus");
+            if (!selectedCommodity || !lastMarkets || !lastMarkets[selectedCommodity]) {
+                container.innerHTML = '<div class="empty-state">Select a commodity from the markets list.</div>';
+                return;
+            }
+
+            const market = lastMarkets[selectedCommodity];
+            const history = priceHistory[selectedCommodity] || [];
+            const recentPrices = history.slice(-5).map(entry => entry.price.toFixed(2));
+            const previous = previousMarkets ? previousMarkets[selectedCommodity] : null;
+            const priceDelta = previous ? (market.price || 0) - (previous.price || 0) : 0;
+            const inventoryDelta = previous ? (market.inventory || 0) - (previous.inventory || 0) : 0;
+
+            const cachedSystems = Array.from(systemCache.entries())
+                .filter(([_, cache]) => cache.markets && cache.markets[selectedCommodity])
+                .map(([id, cache]) => ({
+                    id,
+                    price: cache.markets[selectedCommodity].price || 0,
+                    inventory: cache.markets[selectedCommodity].inventory || 0
+                }));
+
+            const cheapest = [...cachedSystems].sort((a, b) => a.price - b.price).slice(0, 3);
+            const priciest = [...cachedSystems].sort((a, b) => b.price - a.price).slice(0, 3);
+
+            container.innerHTML = `
+                <div class="commodity-card">
+                    <div class="insight-title">Commodity</div>
+                    <div class="summary-value">${selectedCommodity.toUpperCase()}</div>
+                    <div class="insight-item" style="margin-top: 8px;">
+                        <strong>Price</strong>
+                        <span>${market.price?.toFixed(2) || 0} cr</span>
+                    </div>
+                    <div class="insight-item">
+                        <strong>Inventory</strong>
+                        <span>${market.inventory?.toFixed(0) || 0}</span>
+                    </div>
+                    <div class="insight-item">
+                        <strong>Production</strong>
+                        <span>${market.production?.toFixed(2) || 0}/tick</span>
+                    </div>
+                    <div class="insight-item">
+                        <strong>Consumption</strong>
+                        <span>${market.consumption?.toFixed(2) || 0}/tick</span>
+                    </div>
+                </div>
+                <div class="commodity-card">
+                    <div class="insight-title">Latest Change</div>
+                    <div class="insight-item">
+                        <strong>Price delta</strong>
+                        <span>${priceDelta > 0 ? "+" : ""}${priceDelta.toFixed(2)} cr</span>
+                    </div>
+                    <div class="insight-item">
+                        <strong>Inventory delta</strong>
+                        <span>${inventoryDelta > 0 ? "+" : ""}${inventoryDelta.toFixed(0)}</span>
+                    </div>
+                    <div class="insight-title" style="margin-top: 10px;">Recent prices</div>
+                    <div class="mono" style="font-size: 12px; color: #93a4b7;">
+                        ${recentPrices.length ? recentPrices.join(" -> ") : "No history"}
+                    </div>
+                </div>
+                <div class="commodity-card">
+                    <div class="insight-title">Best Buy (Cached)</div>
+                    ${cheapest.length ? cheapest.map(item => `
+                        <div class="insight-item">
+                            <strong>System ${item.id}</strong>
+                            <span>${item.price.toFixed(2)} cr</span>
+                        </div>
+                    `).join("") : '<div class="empty-state">No cached systems.</div>'}
+                </div>
+                <div class="commodity-card">
+                    <div class="insight-title">Best Sell (Cached)</div>
+                    ${priciest.length ? priciest.map(item => `
+                        <div class="insight-item">
+                            <strong>System ${item.id}</strong>
+                            <span>${item.price.toFixed(2)} cr</span>
+                        </div>
+                    `).join("") : '<div class="empty-state">No cached systems.</div>'}
+                </div>
+            `;
+        }
+
+        function updateComparison() {
+            const container = document.getElementById("comparisonGrid");
+            if (!compareData) {
+                container.innerHTML = '<div class="empty-state">Load a comparison system to see differences.</div>';
+                return;
+            }
+
+            const current = systemCache.get(currentSystemId);
+            if (!current || !current.system || !current.markets) {
+                container.innerHTML = '<div class="empty-state">Load current system data to compare.</div>';
+                return;
+            }
+
+            const currentMarkets = current.markets || {};
+            const compareMarkets = compareData.markets || {};
+
+            const sharedGoods = Object.keys(currentMarkets).filter(goodId => compareMarkets[goodId]);
+            const priceDiffs = sharedGoods.map(goodId => {
+                const currentPrice = currentMarkets[goodId].price || 0;
+                const comparePrice = compareMarkets[goodId].price || 0;
+                return {
+                    goodId,
+                    diff: currentPrice - comparePrice
+                };
+            }).sort((a, b) => Math.abs(b.diff) - Math.abs(a.diff)).slice(0, 5);
+
+            container.innerHTML = `
+                <div class="comparison-card">
+                    <div class="insight-title">Current System</div>
+                    <div><strong>System ${current.system.id}</strong></div>
+                    <div>Population: ${current.system.population?.toFixed(1) || 0}M</div>
+                    <div>Tech: ${current.system.techLevel || 0}</div>
+                    <div>Markets: ${Object.keys(currentMarkets).length}</div>
+                </div>
+                <div class="comparison-card">
+                    <div class="insight-title">Compare System</div>
+                    <div><strong>System ${compareData.system.id}</strong></div>
+                    <div>Population: ${compareData.system.population?.toFixed(1) || 0}M</div>
+                    <div>Tech: ${compareData.system.techLevel || 0}</div>
+                    <div>Markets: ${Object.keys(compareMarkets).length}</div>
+                </div>
+                <div class="comparison-card">
+                    <div class="insight-title">Largest Price Gaps</div>
+                    ${priceDiffs.length ? priceDiffs.map(item => `
+                        <div class="insight-item">
+                            <strong>${item.goodId.toUpperCase()}</strong>
+                            <span>${item.diff > 0 ? "+" : ""}${item.diff.toFixed(2)} cr</span>
+                        </div>
+                    `).join("") : '<div class="empty-state">No shared markets.</div>'}
+                </div>
+            `;
+        }
+
+        function updateGalaxyDensityInsights() {
+            const container = document.getElementById("galaxyDensityInsights");
+            const cached = Array.from(systemCache.entries()).map(([id, cache]) => {
+                const population = cache.system?.population || 0;
+                const shipCount = cache.ships ? cache.ships.length : 0;
+                if (!population) {
+                    return null;
+                }
+                const density = shipCount / population;
+                return { id, density, shipCount, population };
+            }).filter(Boolean);
+
+            if (cached.length === 0) {
+                container.innerHTML = '<div class="empty-state">Load systems to populate density insights.</div>';
+                return;
+            }
+
+            const top = [...cached].sort((a, b) => b.density - a.density).slice(0, 3);
+            const bottom = [...cached].sort((a, b) => a.density - b.density).slice(0, 3);
+
+            container.innerHTML = `
+                <div class="insight-card">
+                    <div class="insight-title">Highest Density</div>
+                    ${top.map(item => `
+                        <div class="insight-item">
+                            <strong>System ${item.id}</strong>
+                            <span>${item.shipCount} ships / ${item.population.toFixed(1)}M</span>
+                        </div>
+                    `).join("")}
+                </div>
+                <div class="insight-card">
+                    <div class="insight-title">Lowest Density</div>
+                    ${bottom.map(item => `
+                        <div class="insight-item">
+                            <strong>System ${item.id}</strong>
+                            <span>${item.shipCount} ships / ${item.population.toFixed(1)}M</span>
+                        </div>
+                    `).join("")}
+                </div>
+            `;
+        }
+
+        function toggleAutoRefresh() {
+            const btn = document.getElementById("autoRefreshBtn");
+            if (autoRefreshInterval) {
+                clearInterval(autoRefreshInterval);
+                autoRefreshInterval = null;
+                btn.textContent = "Auto refresh: Off";
+                btn.classList.remove("is-on");
+            } else {
+                autoRefreshInterval = setInterval(() => {
+                    if (currentSystemId !== null) {
+                        if (isGalaxyViewActive()) {
+                            fetchGalaxyData();
+                        } else {
+                            fetchSystemData();
+                        }
+                    }
+                }, 10000);
+                btn.textContent = "Auto refresh: On";
+                btn.classList.add("is-on");
+            }
+        }
+
+        function initializeAutoRefresh() {
+            const btn = document.getElementById("autoRefreshBtn");
+            autoRefreshInterval = setInterval(() => {
+                if (currentSystemId !== null) {
+                    if (isGalaxyViewActive()) {
+                        fetchGalaxyData();
+                    } else {
+                        fetchSystemData();
+                    }
+                }
+            }, 10000);
+            btn.textContent = "Auto refresh: On";
+            btn.classList.add("is-on");
+        }
+
+        async function fetchGalaxyData() {
+            try {
+                const response = await fetch(`${API_BASE}/api/galaxy/ships`);
+                const data = await response.json();
+
+                const container = document.getElementById("galaxyContent");
+
+                const systems = data.shipsBySystem || {};
+                const systemIds = Object.keys(systems).sort((a, b) => parseInt(a) - parseInt(b));
+
+                container.innerHTML = `
+                    <div class="activity-summary">
+                        <div class="summary-card">
+                            <div class="summary-label">Docked Ships</div>
+                            <div class="summary-value">${data.totalShips}</div>
+                        </div>
+                        <div class="summary-card">
+                            <div class="summary-label">Systems with Ships</div>
+                            <div class="summary-value">${systemIds.length}</div>
+                        </div>
+                    </div>
+                    <div class="markets-grid">
+                        ${systemIds.map(systemId => {
+                            const ships = systems[systemId];
+                            const phaseCounts = {};
+                            ships.forEach(ship => {
+                                phaseCounts[ship.phase] = (phaseCounts[ship.phase] || 0) + 1;
+                            });
+
+                            return `
+                                <div class="market-card" style="cursor: pointer;" onclick="loadSystemById(${systemId})">
+                                    <div class="market-name">System ${systemId}</div>
+                                    <div style="margin-top: 10px;">
+                                        <div style="color: #93a4b7; font-size: 13px; margin-bottom: 8px;">
+                                            <strong style="color: #e2e8f0;">${ships.length}</strong> ships
+                                        </div>
+                                        <div style="font-size: 11px; color: #93a4b7;">
+                                            ${Object.entries(phaseCounts).map(([phase, count]) =>
+                                                `<div>${phase.replace("_", " ").toUpperCase()}: ${count}</div>`
+                                            ).join("")}
+                                        </div>
+                                    </div>
+                                </div>
+                            `;
+                        }).join("")}
+                    </div>
+                `;
+                updateGalaxyDensityInsights();
+                setConnectionStatus("live", "Live data");
+                updateLastUpdated();
+            } catch (error) {
+                document.getElementById("galaxyContent").innerHTML =
+                    `<div class="empty-state">Error loading galaxy data: ${error.message}</div>`;
+                setConnectionStatus("error", "Connection error");
+            }
+        }
+
+        async function loadGalacticHealth() {
+            try {
+                const [healthResponse, loggingResponse] = await Promise.all([
+                    fetch(`${API_BASE}/api/galaxy-health`),
+                    fetch(`${API_BASE}/api/trade-logging`)
+                ]);
+                const data = await healthResponse.json();
+                const loggingData = await loggingResponse.json().catch(() => ({ mode: "unknown" }));
+                const loggingMode = loggingData?.mode ?? "unknown";
+                if (data.success && data.health) {
+                    const health = data.health;
+                    const statusColor = health.health.status === "healthy" ? "#6bcf7f" : 
+                                       health.health.status === "warning" ? "#fbbf24" : "#ef4444";
+                    const statusIcon = health.health.status === "healthy" ? "✓" : 
+                                      health.health.status === "warning" ? "⚠" : "✗";
+                    const tradeLoggingHint = health.trades.totalTrades === 0 && loggingMode === "none"
+                        ? `
+                            <div style="margin-top: 10px; padding: 10px; border-radius: 10px; background: rgba(96, 165, 250, 0.12); border: 1px solid rgba(96, 165, 250, 0.35); font-size: 12px; color: #cbd5f5;">
+                                Trade logging is currently off, so trade activity won't appear here.
+                                <div style="margin-top: 8px;">
+                                    <button class="btn secondary" onclick="enableTradeLogging()">Enable Trade Logging</button>
+                                </div>
+                            </div>
+                        `
+                        : `
+                            <div style="margin-top: 10px; font-size: 12px; color: #93a4b7;">
+                                Trade logging: <strong style="color: #e2e8f0;">${loggingMode}</strong>
+                            </div>
+                        `;
+                    
+                    document.getElementById("galacticHealthContent").innerHTML = `
+                        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 16px; margin-bottom: 20px;">
+                            <div class="insight-card">
+                                <div class="insight-title">Health Status</div>
+                                <div style="font-size: 24px; color: ${statusColor}; margin: 10px 0;">
+                                    ${statusIcon} ${health.health.status.toUpperCase()}
+                                </div>
+                                ${health.health.issues.length > 0 ? `
+                                    <div style="margin-top: 10px; font-size: 12px; color: #aaa;">
+                                        ${health.health.issues.map(issue => `<div>• ${issue}</div>`).join('')}
+                                    </div>
+                                ` : '<div style="margin-top: 10px; font-size: 12px; color: #6bcf7f;">No issues detected</div>'}
+                            </div>
+                            <div class="insight-card">
+                                <div class="insight-title">Population</div>
+                                <div style="font-size: 18px; margin: 10px 0;">
+                                    ${health.population.active.toLocaleString()} / ${health.population.target.toLocaleString()}
+                                </div>
+                                <div style="font-size: 12px; color: #aaa;">
+                                    ${((health.population.active / health.population.target) * 100).toFixed(1)}% of target
+                                </div>
+                            </div>
+                            <div class="insight-card">
+                                <div class="insight-title">Ship Activity (Last Hour)</div>
+                                <div style="font-size: 14px; margin: 10px 0;">
+                                    <div style="color: #6bcf7f;">Spawns: ${health.ships.spawnsLastHour}</div>
+                                    <div style="color: #ef4444;">Removals: ${health.ships.removalsLastHour}</div>
+                                    <div style="color: ${health.ships.netGrowth >= 0 ? '#6bcf7f' : '#ef4444'};">
+                                        Net: ${health.ships.netGrowth >= 0 ? '+' : ''}${health.ships.netGrowth}
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="insight-card">
+                                <div class="insight-title">Trade Activity</div>
+                                <div style="font-size: 14px; margin: 10px 0;">
+                                    <div>Total: ${health.trades.totalTrades}</div>
+                                    <div style="color: #6bcf7f;">Success: ${health.trades.successfulBuys + health.trades.successfulSells}</div>
+                                    <div style="color: #ef4444;">Failed: ${health.trades.failedTrades}</div>
+                                    <div style="color: #6bcf7f;">Profit: ${health.trades.totalProfit.toLocaleString()} cr</div>
+                                </div>
+                                ${tradeLoggingHint}
+                            </div>
+                        </div>
+                        <div style="margin-top: 20px; padding: 15px; background: rgba(8, 15, 24, 0.5); border-radius: 10px;">
+                            <div style="font-weight: 600; margin-bottom: 10px;">Removal Reasons</div>
+                            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; font-size: 12px;">
+                                ${Object.entries(health.ships.removalReasons).map(([reason, count]) => 
+                                    `<div>${reason}: ${count}</div>`
+                                ).join('') || '<div style="color: #aaa;">No removals tracked yet</div>'}
+                            </div>
+                        </div>
+                    `;
+                } else {
+                    document.getElementById("galacticHealthContent").innerHTML = 
+                        `<div class="empty-state">Error loading galactic health data</div>`;
+                }
+            } catch (error) {
+                document.getElementById("galacticHealthContent").innerHTML = 
+                    `<div class="empty-state">Error: ${error.message}</div>`;
+            }
+        }
+
+        async function enableTradeLogging() {
+            try {
+                await fetch(`${API_BASE}/api/trade-logging`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ mode: "all" })
+                });
+                loadGalacticHealth();
+            } catch (error) {
+                document.getElementById("galacticHealthContent").innerHTML = 
+                    `<div class="empty-state">Failed to enable trade logging: ${error.message}</div>`;
+            }
+        }
+
+        function loadGalaxyView() {
+            document.getElementById("systemView").style.display = "none";
+            document.getElementById("galaxyView").style.display = "block";
+            setConnectionStatus("", "Connecting...");
+            fetchGalaxyData();
+            loadGalacticHealth();
+            // Load galaxy map with first system or no current system
+            if (currentSystemId !== null) {
+                fetch(`${API_BASE}/api/system/${currentSystemId}?action=snapshot`)
+                    .then(r => r.json())
+                    .then(data => updateGalaxyMap(data.system))
+                    .catch(() => updateGalaxyMap(null));
+            } else {
+                updateGalaxyMap(null);
+            }
+        }
+
+        async function loadCompareSystem() {
+            const compareId = parseInt(document.getElementById("compareSystemId").value);
+            if (isNaN(compareId) || compareId < 0 || compareId > 255) {
+                alert("Invalid comparison system ID (0-255)");
+                return;
+            }
+            try {
+                const response = await fetch(`${API_BASE}/api/system/${compareId}/monitor`);
+                const data = await response.json();
+                compareData = data;
+                cacheSystemData(compareId, data);
+                updateComparison();
+                updateCommodityFocus();
+                updateGalaxyDensityInsights();
+            } catch (error) {
+                console.error("Error fetching comparison system:", error);
+            }
+        }
+
+        function loadSystemById(systemId) {
+            document.getElementById("systemId").value = systemId;
+            document.getElementById("systemView").style.display = "grid";
+            document.getElementById("galaxyView").style.display = "none";
+            if (systemId !== currentSystemId) {
+                resetSystemState();
+            }
+            currentSystemId = systemId;
+            fetchSystemData();
+        }
+
+        document.getElementById("marketFilter").addEventListener("input", (event) => {
+            marketFilterText = event.target.value;
+            if (lastMarkets) {
+                updateMarkets(lastMarkets);
+            }
+        });
+
+        document.getElementById("shipFilter").addEventListener("input", (event) => {
+            shipFilterText = event.target.value;
+            if (lastShips) {
+                updateShips(lastShips);
+                updateIssues();
+            }
+        });
+
+        loadSystem();
+        initializeAutoRefresh();
+    </script>
+</body>
+</html>
