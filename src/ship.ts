@@ -25,7 +25,7 @@ import {
 import { getGoodDefinition, getAllGoodIds } from "./goods";
 import { DO_INTERNAL } from "./durable-object-helpers";
 import { shouldLogTradeNow, logTrade, shouldLogDecisions, logDecision } from "./trade-logging";
-import { getMinProfitMargin } from "./balance-config";
+import { getMinProfitMargin, getTradeScoringWeights } from "./balance-config";
 import { updateShipPresence, removeShipPresence } from "./local-ship-registry";
 import { recordRemoval } from "./galaxy-health";
 import { recordTick, recordTrade, recordFailedTrade, updateTraderCredits, recordTravel } from "./leaderboard";
@@ -1302,7 +1302,7 @@ export class Ship {
     );
     const system = this.env.STAR_SYSTEM.get(systemStub) as { fetch: (request: Request | string) => Promise<Response> };
 
-    let snapshot: { markets: Record<GoodId, { price: number; inventory: number }> };
+    let snapshot: { markets: Record<GoodId, { price: number; inventory: number; production?: number; consumption?: number }> };
     try {
       const snapshotResponse = await system.fetch(DO_INTERNAL("/snapshot"));
       if (!snapshotResponse.ok) {
@@ -1310,7 +1310,7 @@ export class Ship {
         return;
       }
       snapshot = (await snapshotResponse.json()) as {
-        markets: Record<GoodId, { price: number; inventory: number }>;
+        markets: Record<GoodId, { price: number; inventory: number; production?: number; consumption?: number }>;
       };
     } catch (error) {
       console.error(`[Ship ${this.shipState.id}] Error fetching snapshot:`, error);
@@ -1828,11 +1828,88 @@ export class Ship {
     return false;
   }
 
+  /**
+   * Calculate Smart Score for a trade candidate
+   * Combines multiple factors: profit margin, efficiency, volume potential, and market need
+   */
+  private calculateTradeScore(
+    candidate: { goodId: GoodId; price: number; good: ReturnType<typeof getGoodDefinition> },
+    market: { price: number; inventory: number; production: number; consumption: number },
+    purchasePrice: number,
+    netSellPrice: number,
+    affordableQuantity: number,
+    availableSpace: number
+  ): number {
+    if (!candidate.good) return -Infinity;
+    
+    const weights = getTradeScoringWeights();
+    const good = candidate.good;
+    
+    // 1. Profit margin (30% weight)
+    const profitMargin = (netSellPrice - purchasePrice) / purchasePrice;
+    const marginScore = profitMargin * weights.profitMargin;
+    
+    // 2. Profit per cargo space - efficiency (25% weight)
+    const profitPerUnit = netSellPrice - purchasePrice;
+    const profitPerCargoSpace = profitPerUnit / good.weight;
+    // Normalize by base price to make it comparable across goods
+    const efficiencyScore = (profitPerCargoSpace / good.basePrice) * weights.profitPerCargoSpace;
+    
+    // 3. Total profit potential - volume (25% weight)
+    const totalProfit = profitPerUnit * affordableQuantity;
+    // Normalize to ~1000 cr scale for comparison
+    const volumeScore = (totalProfit / 1000) * weights.totalProfitPotential;
+    
+    // 4. Inventory pressure - market need (20% weight)
+    // Higher inventory relative to expected stock = more pressure to trade
+    const expectedStock = Math.max(1, (market.production + market.consumption) * 10);
+    const inventoryRatio = market.inventory / expectedStock;
+    // Bonus up to 2x when inventory is high (needs trading)
+    const pressureMultiplier = Math.min(2.0, inventoryRatio / 0.5);
+    const pressureScore = pressureMultiplier * weights.inventoryPressure;
+    
+    const totalScore = marginScore + efficiencyScore + volumeScore + pressureScore;
+    return totalScore;
+  }
+
   private async tryBuyGoods(
-    markets: Record<GoodId, { price: number; inventory: number }>,
+    markets: Record<GoodId, { price: number; inventory: number; production?: number; consumption?: number }>,
     rng: DeterministicRNG
   ): Promise<boolean> {
     if (!this.shipState) return false;
+
+    // Get full market data including production/consumption from current system snapshot
+    const currentSystemId = this.shipState.currentSystem;
+    let fullMarketData: Record<GoodId, { price: number; inventory: number; production: number; consumption: number }> = {};
+    if (currentSystemId !== null) {
+      try {
+        const systemStub = this.env.STAR_SYSTEM.idFromName(`system-${currentSystemId}`);
+        const systemObj = this.env.STAR_SYSTEM.get(systemStub) as { fetch: (request: Request | string) => Promise<Response> };
+        const snapshotResponse = await systemObj.fetch(DO_INTERNAL("/snapshot"));
+        if (snapshotResponse.ok) {
+          const snapshotData = (await snapshotResponse.json()) as {
+            markets?: Record<GoodId, { price: number; inventory: number; production: number; consumption: number }>;
+          };
+          if (snapshotData.markets) {
+            fullMarketData = snapshotData.markets;
+          }
+        }
+      } catch (error) {
+        // Fall back to markets parameter if snapshot fails
+      }
+    }
+    
+    // Merge markets parameter with full market data (prefer full data)
+    const mergedMarkets: Record<GoodId, { price: number; inventory: number; production: number; consumption: number }> = {};
+    for (const [goodId, market] of Object.entries(markets)) {
+      const fullData = fullMarketData[goodId];
+      mergedMarkets[goodId] = {
+        price: market.price,
+        inventory: market.inventory,
+        production: fullData?.production ?? market.production ?? 0,
+        consumption: fullData?.consumption ?? market.consumption ?? 0,
+      };
+    }
 
     const logDecisions = shouldLogDecisions(this.shipState.id);
     if (logDecisions) {
@@ -1863,27 +1940,24 @@ export class Ship {
     const reservePercentage = 0.20; // Reserve 20% for fuel and taxes
     const spendableCredits = Math.max(0, this.shipState.credits * (1 - reservePercentage) - fuelReserveCredits);
 
-    // Find goods with good prices (low price relative to base)
-    // CRITICAL: Only consider goods the NPC can actually afford (after fuel reserve)
+    // Find goods the NPC can afford
+    // Use Smart Scoring to evaluate all profitable candidates, not just cheapest ones
     const goodIds = getAllGoodIds();
     const candidates = goodIds
       .map((goodId) => {
         const good = getGoodDefinition(goodId);
-        const market = markets[goodId];
+        const market = mergedMarkets[goodId];
         if (!good || !market || market.inventory === 0) return null;
 
-        // Fix: Check if NPC can afford at least 1 unit including tax
+        // Check if NPC can afford at least 1 unit including tax
         if (!this.shipState) return null;
-        const effectiveBuyPrice = market.price * (1 + SALES_TAX_RATE); // Price + tax
+        const effectiveBuyPrice = market.price * (1 + SALES_TAX_RATE);
         const canAfford = spendableCredits >= effectiveBuyPrice;
-        if (!canAfford) return null; // Skip goods we can't afford
+        if (!canAfford) return null;
 
-        // Price ratio (lower is better for buying)
-        const priceRatio = market.price / good.basePrice;
-        return { goodId, priceRatio, price: market.price, good };
+        return { goodId, price: market.price, good, market: mergedMarkets[goodId] };
       })
-      .filter((c): c is NonNullable<typeof c> => c !== null)
-      .sort((a, b) => a.priceRatio - b.priceRatio);
+      .filter((c): c is NonNullable<typeof c> => c !== null);
 
     if (candidates.length === 0) {
       if (logDecisions) {
@@ -1892,117 +1966,146 @@ export class Ship {
       return false;
     }
 
-    const shortlist = candidates.slice(0, 5);
-    if (logDecisions) {
-      logDecision(this.shipState.id, `  Affordable candidates: ${shortlist.map(c => `${c.goodId}(${c.priceRatio.toFixed(2)}@${c.price.toFixed(2)})`).join(", ")}`);
+    const minProfitMargin = getMinProfitMargin();
+    if (currentSystemId === null) {
+      if (logDecisions) {
+        logDecision(this.shipState.id, `  RESULT: Cannot buy - no current system`);
+      }
+      return false;
     }
 
-    const minProfitMargin = getMinProfitMargin();
-    let selected: typeof shortlist[number] | null = null;
+    // Evaluate all candidates with Smart Scoring
+    // For each candidate, find best destination and calculate score
+    interface ScoredCandidate {
+      candidate: typeof candidates[0];
+      destinationSystemId: SystemId;
+      profitMargin: number;
+      score: number;
+      purchasePrice: number;
+      netSellPrice: number;
+      affordableQuantity: number;
+    }
 
-    for (const candidate of shortlist) {
-      // Fix: Look-ahead - check if there are profitable sell destinations before buying
+    const scoredCandidates: ScoredCandidate[] = [];
+    const checkRange = 20;
+    const systemIdForCheck = currentSystemId; // Use local variable to avoid shadowing
+
+    for (const candidate of candidates) {
       const effectiveBuyPrice = candidate.price * (1 + SALES_TAX_RATE);
-      const purchasePrice = effectiveBuyPrice; // This is what we'll pay per unit
+      const purchasePrice = effectiveBuyPrice;
+      
+      // Calculate affordable quantity
+      const maxAffordable = Math.floor(spendableCredits / purchasePrice);
+      const maxBySpace = Math.floor(availableSpace / candidate.good.weight);
+      const affordableQuantity = Math.min(maxAffordable, maxBySpace);
 
-      // Always verify profitability before buying - don't assume cheap = profitable
-      // Even very cheap goods need a profitable destination to justify the purchase
-      const currentSystem = this.shipState.currentSystem;
-      if (currentSystem === null) {
-        // Can't check destinations without a current system
-        continue;
-      }
+      if (affordableQuantity <= 0) continue;
 
-      const checkRange = 20; // Check systems within ±20 (increased from 15)
-      let hasProfitableDestination = false;
+      let bestScore = -Infinity;
+      let bestDestination: SystemId | null = null;
       let bestProfitMargin = -Infinity;
+      let bestNetSellPrice = 0;
 
       try {
-        for (let i = Math.max(0, currentSystem - checkRange); i <= Math.min(255, currentSystem + checkRange); i++) {
-          if (i === currentSystem) continue;
+        for (let i = Math.max(0, systemIdForCheck - checkRange); i <= Math.min(255, systemIdForCheck + checkRange); i++) {
+          if (i === systemIdForCheck) continue;
 
           try {
             const systemStub = this.env.STAR_SYSTEM.idFromName(`system-${i}`);
             const systemObj = this.env.STAR_SYSTEM.get(systemStub) as { fetch: (request: Request | string) => Promise<Response> };
             const snapshot = await systemObj.fetch(DO_INTERNAL("/snapshot"));
-            const data = (await snapshot.json()) as { markets?: Record<GoodId, { price: number }> };
+            const data = (await snapshot.json()) as { 
+              markets?: Record<GoodId, { price: number; production?: number; consumption?: number; inventory?: number }> 
+            };
 
             if (data.markets && data.markets[candidate.goodId]) {
               const targetPrice = data.markets[candidate.goodId].price;
-              const netSellPrice = targetPrice; // No tax on sales
+              const netSellPrice = targetPrice;
               const profitMargin = (netSellPrice - purchasePrice) / purchasePrice;
 
-              // Track best profit margin found
-              if (profitMargin > bestProfitMargin) {
-                bestProfitMargin = profitMargin;
-              }
-
-              // Require at least minProfitMargin to consider it profitable
+              // Only consider profitable destinations
               if (profitMargin >= minProfitMargin) {
-                hasProfitableDestination = true;
-                // Store the destination for travel after buying
-                this.shipState.chosenDestinationSystemId = i;
-                this.shipState.expectedMarginAtChoiceTime = profitMargin;
-                if (logDecisions) {
-                  logDecision(this.shipState.id, `  Found profitable destination: system ${i} offers ${(profitMargin * 100).toFixed(1)}% margin for ${candidate.goodId}`);
+                // Get market data for scoring (use current system's market for inventory/production/consumption)
+                const marketData = {
+                  price: candidate.price,
+                  inventory: candidate.market.inventory,
+                  production: candidate.market.production,
+                  consumption: candidate.market.consumption,
+                };
+
+                // Calculate Smart Score
+                const score = this.calculateTradeScore(
+                  candidate,
+                  marketData,
+                  purchasePrice,
+                  netSellPrice,
+                  affordableQuantity,
+                  availableSpace
+                );
+
+                if (score > bestScore) {
+                  bestScore = score;
+                  bestDestination = i;
+                  bestProfitMargin = profitMargin;
+                  bestNetSellPrice = netSellPrice;
                 }
-                break;
               }
             }
           } catch (error) {
-            // Skip systems that can't be checked
             continue;
           }
         }
       } catch (error) {
-        // If we can't check destinations, don't assume profitability
-        // Skip this candidate and try the next one
         if (logDecisions) {
-          logDecision(this.shipState.id, `  Could not verify destinations for ${candidate.goodId}, skipping this candidate`);
+          logDecision(this.shipState.id, `  Could not verify destinations for ${candidate.goodId}, skipping`);
         }
         continue;
       }
 
-      // Only select if we found a profitable destination
-      if (hasProfitableDestination) {
-        if (logDecisions) {
-          logDecision(this.shipState.id, `  Selected ${candidate.goodId} with best profit margin ${(bestProfitMargin * 100).toFixed(1)}%`);
-        }
-        selected = candidate;
-        break;
-      } else if (logDecisions) {
-        // Log why we're not buying this candidate
-        if (bestProfitMargin > -Infinity) {
-          logDecision(this.shipState.id, `  Skipping ${candidate.goodId} - best margin found ${(bestProfitMargin * 100).toFixed(1)}% is below minimum ${(minProfitMargin * 100).toFixed(1)}%`);
-        } else {
-          logDecision(this.shipState.id, `  Skipping ${candidate.goodId} - no markets found in nearby systems`);
-        }
+      // Add to scored candidates if profitable destination found
+      if (bestDestination !== null && bestScore > -Infinity) {
+        scoredCandidates.push({
+          candidate,
+          destinationSystemId: bestDestination,
+          profitMargin: bestProfitMargin,
+          score: bestScore,
+          purchasePrice,
+          netSellPrice: bestNetSellPrice,
+          affordableQuantity,
+        });
       }
     }
 
-    if (!selected) {
+    if (scoredCandidates.length === 0) {
       if (logDecisions) {
         logDecision(this.shipState.id, `  RESULT: Cannot buy - no profitable sell destinations found nearby for any affordable goods`);
       }
       return false;
     }
 
+    // Sort by score (highest first) and select best
+    scoredCandidates.sort((a, b) => b.score - a.score);
+    const selected = scoredCandidates[0];
+
     if (logDecisions) {
-      logDecision(this.shipState.id, `  Selected good: ${selected.goodId}, price: ${selected.price.toFixed(2)}, priceRatio: ${selected.priceRatio.toFixed(2)}`);
+      logDecision(
+        this.shipState.id,
+        `  Selected ${selected.candidate.goodId} with score ${selected.score.toFixed(3)} ` +
+        `(margin: ${(selected.profitMargin * 100).toFixed(1)}%, destination: system ${selected.destinationSystemId})`
+      );
     }
 
-    const effectiveBuyPrice = selected.price * (1 + SALES_TAX_RATE);
+    // Store destination for travel
+    this.shipState.chosenDestinationSystemId = selected.destinationSystemId;
+    this.shipState.expectedMarginAtChoiceTime = selected.profitMargin;
 
-    // Fix: Calculate how much to buy accounting for tax
-    const availableCredits = spendableCredits;
-    const maxAffordable = Math.floor(availableCredits / effectiveBuyPrice);
-    const maxBySpace = Math.floor(availableSpace / selected.good.weight);
-    // Buy more aggressively - fill cargo space if affordable
-    const maxQuantity = Math.min(maxAffordable, maxBySpace);
-    const quantity = Math.min(maxQuantity, Math.floor(availableSpace / selected.good.weight));
+    const effectiveBuyPrice = selected.purchasePrice;
+    const quantity = selected.affordableQuantity;
     
     if (logDecisions) {
-      logDecision(this.shipState.id, `  Buy calculation: credits=${this.shipState.credits.toFixed(2)}, fuelReserve=${fuelReserveCredits.toFixed(2)}, availableCredits=${availableCredits.toFixed(2)}, price=${selected.price.toFixed(2)}, effectiveBuyPrice=${effectiveBuyPrice.toFixed(2)} (with tax), maxAffordable=${maxAffordable}, maxBySpace=${maxBySpace}, quantity=${quantity}`);
+      const maxAffordable = Math.floor(spendableCredits / effectiveBuyPrice);
+      const maxBySpace = Math.floor(availableSpace / selected.candidate.good.weight);
+      logDecision(this.shipState.id, `  Buy calculation: credits=${this.shipState.credits.toFixed(2)}, fuelReserve=${fuelReserveCredits.toFixed(2)}, availableCredits=${spendableCredits.toFixed(2)}, price=${selected.candidate.price.toFixed(2)}, effectiveBuyPrice=${effectiveBuyPrice.toFixed(2)} (with tax), maxAffordable=${maxAffordable}, maxBySpace=${maxBySpace}, quantity=${quantity}`);
     }
 
     if (quantity <= 0) {
@@ -2015,7 +2118,7 @@ export class Ship {
     // Execute trade
     try {
       const tradeResponse = await this.executeTrade(
-        selected.goodId,
+        selected.candidate.goodId,
         quantity,
         "buy"
       );
@@ -2027,15 +2130,15 @@ export class Ship {
         };
 
         if (logDecisions) {
-          logDecision(this.shipState.id, `  Trade response: success=${result.success}, totalCost=${result.totalCost.toFixed(2)}, expectedCost=${(selected.price * quantity).toFixed(2)}`);
+          logDecision(this.shipState.id, `  Trade response: success=${result.success}, totalCost=${result.totalCost.toFixed(2)}, expectedCost=${(effectiveBuyPrice * quantity).toFixed(2)}`);
         }
 
         if (result.success) {
           // Update cargo and credits
-          const currentCargo = this.shipState.cargo.get(selected.goodId) || 0;
+          const currentCargo = this.shipState.cargo.get(selected.candidate.goodId) || 0;
           const creditsBefore = this.shipState.credits;
           const cargoBefore = Array.from(this.shipState.cargo.entries()).filter(([_, qty]) => qty > 0).map(([g, q]) => `${g}:${q}`).join(", ") || "none";
-          this.shipState.cargo.set(selected.goodId, currentCargo + quantity);
+          this.shipState.cargo.set(selected.candidate.goodId, currentCargo + quantity);
           this.shipState.credits -= result.totalCost;
           const cargoAfter = Array.from(this.shipState.cargo.entries()).filter(([_, qty]) => qty > 0).map(([g, q]) => `${g}:${q}`).join(", ") || "none";
           
@@ -2047,7 +2150,7 @@ export class Ship {
           if (!this.shipState) {
             console.error(`[Ship] Cannot set purchasePrice - shipState is null`);
           } else {
-            const currentPurchasePrice = this.shipState.purchasePrices.get(selected.goodId);
+            const currentPurchasePrice = this.shipState.purchasePrices.get(selected.candidate.goodId);
             const purchasePrice = result.totalCost / quantity;
             let finalPurchasePrice: number;
             
@@ -2056,23 +2159,23 @@ export class Ship {
               const totalCost = (currentPurchasePrice * currentCargo) + result.totalCost;
               const totalQuantity = currentCargo + quantity;
               finalPurchasePrice = totalCost / totalQuantity;
-              this.shipState.purchasePrices.set(selected.goodId, finalPurchasePrice);
+              this.shipState.purchasePrices.set(selected.candidate.goodId, finalPurchasePrice);
               if (logDecisions) {
-                logDecision(this.shipState.id, `  Set purchasePrice for ${selected.goodId}: ${finalPurchasePrice.toFixed(2)} (weighted average of ${currentPurchasePrice.toFixed(2)} and ${purchasePrice.toFixed(2)})`);
+                logDecision(this.shipState.id, `  Set purchasePrice for ${selected.candidate.goodId}: ${finalPurchasePrice.toFixed(2)} (weighted average of ${currentPurchasePrice.toFixed(2)} and ${purchasePrice.toFixed(2)})`);
               }
             } else {
               finalPurchasePrice = purchasePrice;
-              this.shipState.purchasePrices.set(selected.goodId, finalPurchasePrice);
+              this.shipState.purchasePrices.set(selected.candidate.goodId, finalPurchasePrice);
               if (logDecisions) {
-                logDecision(this.shipState.id, `  Set purchasePrice for ${selected.goodId}: ${finalPurchasePrice.toFixed(2)}`);
+                logDecision(this.shipState.id, `  Set purchasePrice for ${selected.candidate.goodId}: ${finalPurchasePrice.toFixed(2)}`);
               }
             }
             // Verify it was set correctly
-            const verifyPrice = this.shipState.purchasePrices.get(selected.goodId);
+            const verifyPrice = this.shipState.purchasePrices.get(selected.candidate.goodId);
             if (!verifyPrice || Math.abs(verifyPrice - finalPurchasePrice) > 0.01) {
               console.error(
                 `[Ship ${this.shipState.id}] CRITICAL: purchasePrice not set correctly! ` +
-                `Expected ${finalPurchasePrice.toFixed(2)} but got ${verifyPrice?.toFixed(2) || 'undefined'} for ${selected.goodId}`
+                `Expected ${finalPurchasePrice.toFixed(2)} but got ${verifyPrice?.toFixed(2) || 'undefined'} for ${selected.candidate.goodId}`
               );
             }
             // Track when cargo was purchased for max hold time check
@@ -2083,7 +2186,7 @@ export class Ship {
             // Log trade (with error handling to prevent blocking)
             try {
               if (shouldLogTradeNow(this.shipState.id)) {
-                logTrade(`[Ship ${this.shipState.id}] Bought ${quantity} ${selected.goodId} for ${result.totalCost} cr (${finalPurchasePrice.toFixed(2)} cr/unit) in system ${this.shipState.currentSystem}`);
+                logTrade(`[Ship ${this.shipState.id}] Bought ${quantity} ${selected.candidate.goodId} for ${result.totalCost} cr (${finalPurchasePrice.toFixed(2)} cr/unit) in system ${this.shipState.currentSystem}`);
               }
             } catch (error) {
               // Ignore logging errors to prevent blocking trades
@@ -2097,7 +2200,7 @@ export class Ship {
                 this.shipState.name,
                 this.shipState.currentSystem!,
                 systemName,
-                selected.goodId,
+                selected.candidate.goodId,
                 quantity,
                 finalPurchasePrice,
                 "buy"
@@ -2120,7 +2223,7 @@ export class Ship {
                 errorData = { error: undefined };
               }
               const errorMsg = errorData.error || "Unknown error";
-              logTrade(`[Ship ${this.shipState.id}] Buy trade failed: ${errorMsg} (tried to buy ${quantity} ${selected.goodId} in system ${this.shipState.currentSystem})`);
+              logTrade(`[Ship ${this.shipState.id}] Buy trade failed: ${errorMsg} (tried to buy ${quantity} ${selected.candidate.goodId} in system ${this.shipState.currentSystem})`);
             }
           } catch (error) {
             // Ignore logging errors

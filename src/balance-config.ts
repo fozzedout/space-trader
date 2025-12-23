@@ -15,6 +15,13 @@ export interface BalanceConfig {
   transactionImpactMultiplier: number; // 0.01-0.1 (immediate price impact from trades)
   inventoryDampingThreshold: number;  // 0.1-0.2 (buffer zone size for extreme inventory)
   sigmoidSteepness: number;           // 2-5 (non-linear response curve shape)
+  // Trade scoring weights for Smart Scoring system
+  tradeScoringWeights: {
+    profitMargin: number;        // Weight for margin percentage (default 0.3)
+    profitPerCargoSpace: number; // Weight for efficiency (default 0.25)
+    totalProfitPotential: number; // Weight for volume potential (default 0.25)
+    inventoryPressure: number;    // Weight for market need (default 0.2)
+  };
 }
 
 let balanceConfig: BalanceConfig = {
@@ -29,6 +36,13 @@ let balanceConfig: BalanceConfig = {
   transactionImpactMultiplier: 0.05, // 5% impact from trades
   inventoryDampingThreshold: 0.15,   // 15% buffer zones
   sigmoidSteepness: 3.0,             // Moderate sigmoid curve
+  // Trade scoring weights for Smart Scoring
+  tradeScoringWeights: {
+    profitMargin: 0.3,        // 30% weight on margin percentage
+    profitPerCargoSpace: 0.25, // 25% weight on efficiency
+    totalProfitPotential: 0.25, // 25% weight on volume potential
+    inventoryPressure: 0.2,    // 20% weight on market need
+  },
 };
 
 export function getBalanceConfig(): BalanceConfig {
@@ -78,4 +92,8 @@ export function getInventoryDampingThreshold(): number {
 
 export function getSigmoidSteepness(): number {
   return balanceConfig.sigmoidSteepness;
+}
+
+export function getTradeScoringWeights(): BalanceConfig['tradeScoringWeights'] {
+  return { ...balanceConfig.tradeScoringWeights };
 }

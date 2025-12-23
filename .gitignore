@@ -13,3 +13,7 @@ dist/
 *.db
 *.db-shm
 *.db-wal
+.wrangler/
+*.service
+logs/
+node-modules/
