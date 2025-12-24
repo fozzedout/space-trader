@@ -1895,13 +1895,14 @@ export class Ship {
   private getMobilityReserveCredits(): number {
     if (!this.shipState || this.shipState.currentSystem === null) return 0;
     
-    // Estimate fuel cost for 2 hops (use average distance or MAX_TRAVEL_DISTANCE as conservative estimate)
-    // For safety, assume we might need to travel MAX_TRAVEL_DISTANCE twice
-    const twoHopsFuel = MAX_TRAVEL_DISTANCE * 2;
-    const fuelReserve = this.calculateFuelCost(twoHopsFuel);
+    // Estimate fuel cost for cheapest neighbor (typically 1 LY for adjacent systems)
+    // Use 2 LY as a reasonable estimate (allows for systems that might be slightly further)
+    // This is much more realistic than MAX_TRAVEL_DISTANCE which is the maximum, not typical
+    const cheapestNeighborDistance = 2; // Adjacent systems are typically 1 LY, use 2 for safety
+    const fuelReserve = this.calculateFuelCost(cheapestNeighborDistance);
     
-    // Add small safety margin
-    return fuelReserve + 20; // 20 cr safety margin
+    // Add small safety margin for tax and rounding
+    return fuelReserve + 5; // 5 cr safety margin (was 20, but 2 LY * 2 cr/LY * 1.03 + 5 ≈ 9 cr total)
   }
 
   /**
@@ -1917,7 +1918,8 @@ export class Ship {
     const tickCount = Math.floor(now / 10000); // Rough tick count (10s intervals)
 
     // Rule 1: Insolvent and immobile for K ticks
-    const fuelCostToCheapestNeighbor = this.getMobilityReserveCredits() / 2; // Half for one hop
+    // getMobilityReserveCredits() already calculates cost for one hop to cheapest neighbor
+    const fuelCostToCheapestNeighbor = this.getMobilityReserveCredits();
     const isInsolvent = this.shipState.credits < fuelCostToCheapestNeighbor;
     
     if (isInsolvent) {

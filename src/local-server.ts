@@ -3417,23 +3417,39 @@ function clearPlayerLogs(): void {
       response = jsonResponse({ success: true, message: "Data collection triggered" }, 200, corsHeaders);
     } else if (path === "/api/galaxy-health" && method === "GET") {
       try {
-        // Get current population stats
+        // Get current population stats by counting all ships directly
         const expectedTotal = TOTAL_NPCS;
-        const presenceBySystem = getPresenceBySystem();
+        let totalCount = 0;
         let activeCount = 0;
-        for (const entries of Object.values(presenceBySystem)) {
-          activeCount += entries.length;
+        
+        // Count all ships by querying each one
+        for (let i = 0; i < expectedTotal; i++) {
+          const shipId = `npc-${i}` as ShipId;
+          try {
+            const ship = localEnv.SHIP.get(localEnv.SHIP.idFromName(shipId));
+            const stateResponse = await ship.fetch(new Request("https://dummy/state"));
+            if (stateResponse.ok) {
+              const state = await stateResponse.json();
+              totalCount++;
+              // Count as active if ship has a current system (not null/undefined)
+              if (state.currentSystem !== null && state.currentSystem !== undefined) {
+                activeCount++;
+              }
+            }
+          } catch (error) {
+            // Ship doesn't exist or failed to load - skip
+          }
         }
         
         // Get trade logs for analysis
         const tradeLogs = getTradeLogs();
         
         // Get health metrics
-        // Use activeCount as current population (ships actually in systems)
+        // Use totalCount as current population (all ships that exist)
         const health = getGalaxyHealth(
-          activeCount,    // current active population
+          totalCount,     // current population (all existing ships)
           expectedTotal,  // target population
-          activeCount,    // active ships (same as current for now)
+          activeCount,    // active ships (those in a system)
           tradeLogs,
           SERVER_START_TIME
         );
