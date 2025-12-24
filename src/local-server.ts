@@ -23,10 +23,12 @@ import { getLeaderboard, getTraderDetails, getSystemDetails, clearLeaderboard } 
 import { FUEL_PRICE_PER_LY } from "./armaments";
 import { getAllGoodIds, getGoodDefinition } from "./goods";
 import { getMinProfitMargin } from "./balance-config";
+import { profiler } from "./profiler";
 
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
 const GALAXY_SIZE = parseInt(process.env.GALAXY_SIZE || "256", 10);
-const TICK_INTERVAL_MS = parseInt(process.env.TICK_INTERVAL_MS || "30000", 10); // 30 seconds (increased from 10s to allow time for processing all ships)
+const TICK_INTERVAL_MS = parseInt(process.env.TICK_INTERVAL_MS || "29000", 10); // 29 seconds - for systems and station ships (prime)
+const TRAVELING_TICK_INTERVAL_MS = parseInt(process.env.TRAVELING_TICK_INTERVAL_MS || "11000", 10); // 11 seconds - for traveling ships (departing, in_hyperspace, arriving) (prime)
 const TOTAL_NPCS = parseInt(process.env.TOTAL_NPCS || "8000", 10);
 const AUTO_TICK = process.env.AUTO_TICK !== "false"; // Enable auto-ticking by default (set AUTO_TICK=false to disable)
 const RESET_INTERVAL_MS = parseInt(process.env.RESET_INTERVAL_MS || `${5 * 60 * 1000}`, 10); // 5 minutes (was 30 minutes)
@@ -77,20 +79,24 @@ interface QueuedShip {
   tickId: string; // Unique ID for this tick cycle
 }
 
-let shipProcessingQueue: QueuedShip[] = [];
-let queuedShipIds = new Set<ShipId>(); // Track which ships are already queued
-let isProcessingQueue = false;
+// Separate queues for traveling ships (fast tick) and station ships (normal tick)
+let travelingShipQueue: QueuedShip[] = [];
+let stationShipQueue: QueuedShip[] = [];
+let queuedTravelingShipIds = new Set<ShipId>(); // Track which traveling ships are already queued
+let queuedStationShipIds = new Set<ShipId>(); // Track which station ships are already queued
+let isProcessingTravelingQueue = false;
+let isProcessingStationQueue = false;
+let isSystemTickInProgress = false;
 let currentTickId: string | null = null;
 let shipsProcessedLastTick = 0; // Track ships processed in the last completed tick
-// Use CPU cores to determine optimal batch size for parallel processing
-const CPU_CORES = os.cpus().length;
-const SHIPS_PER_BATCH = Math.max(100, CPU_CORES * 50); // Scale with CPU cores, minimum 100
-const BATCH_DELAY_MS = 0; // No delay - process as fast as possible
 
 function resetShipQueue(): void {
-  shipProcessingQueue = [];
-  queuedShipIds.clear();
-  isProcessingQueue = false;
+  travelingShipQueue = [];
+  stationShipQueue = [];
+  queuedTravelingShipIds.clear();
+  queuedStationShipIds.clear();
+  isProcessingTravelingQueue = false;
+  isProcessingStationQueue = false;
   currentTickId = null;
   shipsProcessedLastTick = 0;
 }
@@ -1700,33 +1706,424 @@ async function handleGalaxyInitialize(
   );
 }
 
+async function handleTravelingTick(): Promise<void> {
+  const tickStartTime = Date.now();
+  const newTickId = `traveling-tick-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+  
+  // Queue only traveling ships (departing, in_hyperspace, arriving)
+  const totalNPCs = TOTAL_NPCS;
+  const now = Date.now();
+  let queuedCount = 0;
+  let skippedCount = 0;
+  
+  for (let i = 0; i < totalNPCs; i++) {
+    const shipId = `npc-${i}` as ShipId;
+    // Check if ship is already in traveling queue
+    const alreadyInQueue = queuedTravelingShipIds.has(shipId) || 
+      travelingShipQueue.some(q => q.shipId === shipId);
+    if (!alreadyInQueue) {
+      try {
+        const ship = localEnv.SHIP.get(localEnv.SHIP.idFromName(shipId));
+        const stateResponse = await ship.fetch(new Request("https://dummy/state"));
+        
+        if (stateResponse.ok) {
+          const state = await stateResponse.json();
+          
+          // Only queue traveling ships
+          if (state.phase === "departing" || state.phase === "in_hyperspace" || state.phase === "arriving") {
+            // Check if phase transition is due
+            if (state.phase === "departing") {
+              if (state.departureStartTime && now < state.departureStartTime) {
+                skippedCount++;
+                continue; // Not due yet
+              }
+            } else if (state.phase === "arriving") {
+              if (state.arrivalCompleteTime && now < state.arrivalCompleteTime) {
+                skippedCount++;
+                continue; // Not due yet
+              }
+            }
+            // Queue traveling ship
+            travelingShipQueue.push({
+              shipId,
+              tickId: newTickId,
+            });
+            queuedTravelingShipIds.add(shipId);
+            queuedCount++;
+          } else {
+            skippedCount++;
+          }
+        }
+      } catch (error) {
+        // Skip on error
+        skippedCount++;
+      }
+    }
+  }
+  
+  // Start processing traveling queue if not already running
+  if (!isProcessingTravelingQueue && travelingShipQueue.length > 0) {
+    processTravelingShipQueue(tickStartTime).catch((error) => {
+      console.error("[Traveling Tick] Error in traveling ship queue processing:", error);
+    });
+  }
+}
+
+async function processTravelingShipQueue(tickStartTime: number): Promise<void> {
+  if (isProcessingTravelingQueue) {
+    return; // Already processing
+  }
+  
+  isProcessingTravelingQueue = true;
+  let shipsTicked = 0;
+  let shipsSkipped = 0;
+  let processedCount = 0;
+  const processingStartTime = Date.now();
+  
+  const shipTimings: number[] = [];
+  const stateCheckTimings: number[] = [];
+  const tickTimings: number[] = [];
+  const yieldTimings: number[] = [];
+  let slowShips: Array<{ shipId: ShipId; duration: number; fetchDuration?: number; jsonDuration?: number; phase?: string; system?: number | null }> = [];
+  
+  try {
+    let shipsSinceLastYield = 0;
+    const YIELD_INTERVAL = 10; // Yield every 10 ships instead of every ship to reduce overhead
+    
+    while (travelingShipQueue.length > 0) {
+      const shipStartTime = Date.now();
+      const queuedShip = travelingShipQueue.shift();
+      if (!queuedShip) {
+        break;
+      }
+      
+      queuedTravelingShipIds.delete(queuedShip.shipId);
+      
+      try {
+        const ship = localEnv.SHIP.get(localEnv.SHIP.idFromName(queuedShip.shipId));
+        
+        // Quick state check with timing
+        const stateCheckStart = Date.now();
+        const stateResponse = await ship.fetch(new Request("https://dummy/state"));
+        const state = await stateResponse.json();
+        const stateCheckEnd = Date.now();
+        const stateCheckDuration = stateCheckEnd - stateCheckStart;
+        stateCheckTimings.push(stateCheckDuration);
+        
+        // Skip if no longer traveling
+        if (state.phase !== "departing" && state.phase !== "in_hyperspace" && state.phase !== "arriving") {
+          shipsSkipped++;
+          processedCount++;
+          shipsSinceLastYield++;
+          // Only yield periodically, not after every skipped ship
+          if (shipsSinceLastYield >= YIELD_INTERVAL) {
+            const yieldStart = Date.now();
+            await new Promise(resolve => setImmediate(resolve));
+            const yieldEnd = Date.now();
+            yieldTimings.push(yieldEnd - yieldStart);
+            shipsSinceLastYield = 0;
+          }
+          continue;
+        }
+        
+        // Process tick with detailed timing
+        const tickStart = Date.now();
+        const fetchStart = Date.now();
+        const response = await ship.fetch(new Request("https://dummy/tick", {
+          method: "POST",
+          headers: { "X-Traveling-Tick": "true" },
+        }));
+        const fetchEnd = Date.now();
+        const jsonStart = Date.now();
+        const result = await response.json();
+        const jsonEnd = Date.now();
+        const tickEnd = Date.now();
+        const tickDuration = tickEnd - tickStart;
+        const fetchDuration = fetchEnd - fetchStart;
+        const jsonDuration = jsonEnd - jsonStart;
+        tickTimings.push(tickDuration);
+        
+        // Track slow operations (>10ms threshold)
+        if (tickDuration > 10) {
+          slowShips.push({
+            shipId: queuedShip.shipId,
+            duration: tickDuration,
+            fetchDuration,
+            jsonDuration,
+            phase: state?.phase || 'unknown',
+            system: state?.currentSystem ?? null,
+          });
+          
+          // Log very slow ships (>20ms) immediately
+          if (tickDuration > 20) {
+            console.log(`[Slow Traveling Ship] ${queuedShip.shipId}: ${tickDuration}ms (fetch: ${fetchDuration}ms, json: ${jsonDuration}ms, phase: ${state?.phase || 'unknown'}, system: ${state?.currentSystem ?? 'null'})`);
+          }
+        }
+        
+        if (result.skipped) {
+          shipsSkipped++;
+        } else {
+          shipsTicked++;
+        }
+        processedCount++;
+        shipsSinceLastYield++;
+        
+        const shipEndTime = Date.now();
+        const shipDuration = shipEndTime - shipStartTime;
+        shipTimings.push(shipDuration);
+      } catch (error) {
+        console.error(`Error ticking traveling ship ${queuedShip.shipId}:`, error);
+        processedCount++;
+        shipsSinceLastYield++;
+      }
+      
+      // Yield to event loop periodically (every YIELD_INTERVAL ships) instead of every ship
+      if (shipsSinceLastYield >= YIELD_INTERVAL) {
+        const yieldStart = Date.now();
+        await new Promise(resolve => setImmediate(resolve));
+        const yieldEnd = Date.now();
+        yieldTimings.push(yieldEnd - yieldStart);
+        shipsSinceLastYield = 0;
+      }
+    }
+  } finally {
+    isProcessingTravelingQueue = false;
+  }
+  
+  const processingEndTime = Date.now();
+  const processingDuration = processingEndTime - processingStartTime;
+  
+  // Calculate statistics
+  const calculateStats = (timings: number[]) => {
+    if (timings.length === 0) return { total: 0, count: 0, min: 0, max: 0, avg: 0, median: 0, p95: 0, p99: 0 };
+    const sorted = [...timings].sort((a, b) => a - b);
+    return {
+      total: timings.reduce((a, b) => a + b, 0),
+      count: timings.length,
+      min: sorted[0],
+      max: sorted[sorted.length - 1],
+      avg: timings.reduce((a, b) => a + b, 0) / timings.length,
+      median: sorted[Math.floor(sorted.length / 2)],
+      p95: sorted[Math.floor(sorted.length * 0.95)],
+      p99: sorted[Math.floor(sorted.length * 0.99)],
+    };
+  };
+  
+  const shipStats = calculateStats(shipTimings);
+  const stateCheckStats = calculateStats(stateCheckTimings);
+  const tickStats = calculateStats(tickTimings);
+  const yieldStats = calculateStats(yieldTimings);
+  
+  // Analyze slow ships by phase
+  if (slowShips.length > 0) {
+    const slowByPhase = new Map<string, { count: number; totalTime: number; avgTime: number }>();
+    const slowBySystem = new Map<number, number>();
+    
+    for (const ship of slowShips) {
+      const phase = ship.phase || 'unknown';
+      const existing = slowByPhase.get(phase) || { count: 0, totalTime: 0, avgTime: 0 };
+      existing.count++;
+      existing.totalTime += ship.duration;
+      existing.avgTime = existing.totalTime / existing.count;
+      slowByPhase.set(phase, existing);
+      
+      if (ship.system !== null && ship.system !== undefined) {
+        slowBySystem.set(ship.system, (slowBySystem.get(ship.system) || 0) + 1);
+      }
+    }
+    
+    console.log(`[Traveling Tick] ${slowShips.length} slow ships (>10ms) analysis:`);
+    console.log(`  By phase: ${Array.from(slowByPhase.entries())
+      .sort((a, b) => b[1].totalTime - a[1].totalTime)
+      .map(([p, d]) => `${p}: ${d.count} ships, ${d.totalTime.toFixed(0)}ms total, ${d.avgTime.toFixed(1)}ms avg`)
+      .join('; ')}`);
+    
+    if (slowBySystem.size > 0) {
+      const topSystems = Array.from(slowBySystem.entries()).sort((a, b) => b[1] - a[1]).slice(0, 5);
+      console.log(`  Top systems: ${topSystems.map(([s, c]) => `system-${s}:${c} ships`).join(', ')}`);
+    }
+    
+    // Show very slow ships
+    const verySlow = slowShips.filter(s => s.duration > 20).slice(0, 10);
+    if (verySlow.length > 0) {
+      console.log(`  Very slow (>20ms): ${verySlow.map(s => `${s.shipId}:${s.duration}ms (${s.phase})`).join(', ')}`);
+    }
+  }
+  
+  // Performance analysis
+  const slowTickThreshold = Math.max(10, tickStats.avg * 1.5);
+  const slowTicks = tickTimings.filter(t => t > slowTickThreshold);
+  const fastTicks = tickTimings.filter(t => t <= slowTickThreshold);
+  
+  console.log(`[Traveling Tick] Processed ${processedCount} traveling ships (${shipsTicked} ticked, ${shipsSkipped} skipped) in ${processingDuration}ms`);
+  console.log(`[Traveling Tick] Ship stats: total=${shipStats.total}ms, avg=${shipStats.avg.toFixed(2)}ms, median=${shipStats.median.toFixed(2)}ms, p95=${shipStats.p95.toFixed(2)}ms, p99=${shipStats.p99.toFixed(2)}ms`);
+  console.log(`[Traveling Tick] State check stats: total=${stateCheckStats.total}ms, avg=${stateCheckStats.avg.toFixed(2)}ms, count=${stateCheckStats.count}`);
+  console.log(`[Traveling Tick] Tick stats: total=${tickStats.total}ms, avg=${tickStats.avg.toFixed(2)}ms, count=${tickStats.count}`);
+  console.log(`[Traveling Tick] Yield stats: total=${yieldStats.total}ms, avg=${yieldStats.avg.toFixed(2)}ms, count=${yieldStats.count}`);
+  
+  if (slowTicks.length > 0 && fastTicks.length > 0) {
+    const slowAvg = slowTicks.reduce((a, b) => a + b, 0) / slowTicks.length;
+    const fastAvg = fastTicks.reduce((a, b) => a + b, 0) / fastTicks.length;
+    const slowTotal = slowTicks.reduce((a, b) => a + b, 0);
+    console.log(`[Traveling Tick] Performance split: ${slowTicks.length} slow ticks (>${slowTickThreshold.toFixed(0)}ms, avg ${slowAvg.toFixed(2)}ms) vs ${fastTicks.length} fast ticks (avg ${fastAvg.toFixed(2)}ms)`);
+    console.log(`[Traveling Tick] Slow ticks: ${slowTotal.toFixed(0)}ms total (${((slowTotal / tickStats.total) * 100).toFixed(1)}% of time) from ${slowTicks.length} ships`);
+    
+    // Auto-enable profiler if average tick time is high
+    if (tickStats.avg > 8) {
+      console.log(`[Traveling Tick] WARNING: High average (${tickStats.avg.toFixed(2)}ms). Enable profiler with ENABLE_PROFILER=true to identify bottlenecks.`);
+    }
+  }
+  
+  // Print profiler stats to identify bottlenecks (with timeout protection)
+  // Disable profiler output by default to prevent CPU issues - enable via ENABLE_PROFILER=true
+  const enableProfiler = process.env.ENABLE_PROFILER === "true";
+  if (enableProfiler) {
+    try {
+      const profilerStats = profiler.getAllStats();
+      if (profilerStats.length > 0 && profilerStats.length < 100000) { // Limit to prevent blocking
+        // Aggregate stats by operation type (remove ship-specific IDs)
+        const aggregated: Map<string, { count: number; totalTime: number; minTime: number; maxTime: number }> = new Map();
+        
+        // Limit processing to first 10000 entries to prevent blocking
+        const statsToProcess = profilerStats.slice(0, 10000);
+        for (const stat of statsToProcess) {
+          // Extract operation type by removing ship IDs
+          let opType = stat.name;
+          
+          // Remove ship-specific prefixes
+          opType = opType.replace(/^(ship-[^-]+-|ship-unknown-|\d+-)/, '');
+          
+          // Remove system-specific suffixes for arrival operations
+          opType = opType.replace(/-handleArrival-notify-\d+$/, '-handleArrival-notify');
+          opType = opType.replace(/-handleArrival$/, '-handleArrival');
+          
+          const existing = aggregated.get(opType) || { count: 0, totalTime: 0, minTime: Infinity, maxTime: 0 };
+          existing.count += stat.count;
+          existing.totalTime += stat.totalTime;
+          existing.minTime = Math.min(existing.minTime, stat.minTime);
+          existing.maxTime = Math.max(existing.maxTime, stat.maxTime);
+          aggregated.set(opType, existing);
+        }
+        
+        // Convert to array and sort by total time
+        const aggregatedStats = Array.from(aggregated.entries())
+          .map(([name, data]) => ({
+            name,
+            count: data.count,
+            totalTime: data.totalTime,
+            avgTime: data.totalTime / data.count,
+            minTime: data.minTime,
+            maxTime: data.maxTime,
+          }))
+          .sort((a, b) => b.totalTime - a.totalTime);
+        
+        // Calculate total profiled time
+        const totalProfiledTime = aggregatedStats.reduce((sum, s) => sum + s.totalTime, 0);
+        const unaccountedTime = processingDuration - totalProfiledTime;
+        const accountedPercentage = (totalProfiledTime / processingDuration * 100).toFixed(1);
+        
+        console.log(`\n[Traveling Tick Profiler] Time accounting: ${totalProfiledTime.toFixed(0)}ms profiled (${accountedPercentage}%), ${unaccountedTime.toFixed(0)}ms unaccounted`);
+        console.log(`[Traveling Tick Profiler] Aggregated operations by total time:`);
+        const topStats = aggregatedStats.slice(0, 20);
+        for (const stat of topStats) {
+          const percentage = (stat.totalTime / processingDuration * 100).toFixed(1);
+          console.log(`  ${stat.name.padEnd(40)} ${stat.totalTime.toFixed(0).padStart(8)}ms (${stat.count.toString().padStart(6)} calls, ${stat.avgTime.toFixed(2).padStart(6)}ms avg, ${percentage.padStart(5)}% of total)`);
+        }
+        
+        // Show arrival-specific operations
+        const arrivalOps = aggregatedStats.filter(s => s.name.includes('handleArrival'));
+        if (arrivalOps.length > 0) {
+          const totalArrivalTime = arrivalOps.reduce((sum, s) => sum + s.totalTime, 0);
+          const totalArrivalCalls = arrivalOps.reduce((sum, s) => sum + s.count, 0);
+          console.log(`\n[Traveling Tick Profiler] Arrival operations: ${totalArrivalCalls} calls, ${totalArrivalTime.toFixed(0)}ms total, ${(totalArrivalTime / totalArrivalCalls).toFixed(2)}ms avg`);
+        }
+        
+        // Show slow operations (high average time)
+        const slowOps = aggregatedStats.filter(s => s.avgTime > 5).sort((a, b) => b.avgTime - a.avgTime).slice(0, 10);
+        if (slowOps.length > 0) {
+          console.log(`\n[Traveling Tick Profiler] Slow operations (>5ms avg):`);
+          for (const stat of slowOps) {
+            console.log(`  ${stat.name.padEnd(40)} ${stat.avgTime.toFixed(2).padStart(6)}ms avg (${stat.count} calls, ${stat.totalTime.toFixed(0)}ms total)`);
+          }
+        }
+      }
+    } catch (error) {
+      console.error(`[Traveling Tick Profiler] Error processing profiler stats:`, error);
+    }
+  } else {
+    // Reset profiler periodically to prevent memory buildup
+    if (processedCount % 10000 === 0) {
+      profiler.reset();
+    }
+  }
+  
+  // Continue processing if more ships queued
+  if (travelingShipQueue.length > 0) {
+    setImmediate(() => {
+      processTravelingShipQueue(tickStartTime).catch((error) => {
+        console.error("[Traveling Tick] Error in continued traveling ship queue processing:", error);
+      });
+    });
+  }
+}
+
 async function handleGalaxyTick(corsHeaders: Record<string, string>): Promise<Response> {
   const tickStartTime = Date.now();
   
   const ticked: SystemId[] = [];
+  let totalArrivalsProcessed = 0;
+  let totalPendingArrivals = 0;
+  let totalMarketsUpdated = 0;
+  let totalSystemTicksProcessed = 0;
+  let systemsWithWork = 0;
 
-  // Tick all systems in parallel batches for better CPU utilization
+  // Tick all systems sequentially (single-threaded processing)
   const systemsStartTime = Date.now();
-  const systemBatches: SystemId[][] = [];
-  for (let i = 0; i < GALAXY_SIZE; i += CPU_CORES * 4) {
-    const batch: SystemId[] = [];
-    for (let j = i; j < Math.min(i + CPU_CORES * 4, GALAXY_SIZE); j++) {
-      batch.push(j as SystemId);
-    }
-    systemBatches.push(batch);
-  }
-  
-  // Process system batches in parallel
-  await Promise.all(systemBatches.map(async (batch) => {
-    await Promise.all(batch.map(async (systemId) => {
+  isSystemTickInProgress = true;
+  try {
+    for (let i = 0; i < GALAXY_SIZE; i++) {
+      const systemId = i as SystemId;
       const system = localEnv.STAR_SYSTEM.get(localEnv.STAR_SYSTEM.idFromName(`system-${systemId}`));
-      await system.fetch(new Request("https://dummy/tick", { method: "POST" }));
+      const response = await system.fetch(new Request("https://dummy/tick", { method: "POST" }));
+      if (response.ok) {
+        try {
+          const result = await response.json() as {
+            processed?: number;
+            arrivalsProcessed?: number;
+            pendingArrivals?: number;
+            marketsUpdated?: number;
+          };
+          const processed = typeof result.processed === "number" ? result.processed : 0;
+          if (processed > 0) {
+            systemsWithWork += 1;
+          }
+          totalSystemTicksProcessed += processed;
+          if (typeof result.arrivalsProcessed === "number") {
+            totalArrivalsProcessed += result.arrivalsProcessed;
+          }
+          if (typeof result.pendingArrivals === "number") {
+            totalPendingArrivals += result.pendingArrivals;
+          }
+          if (typeof result.marketsUpdated === "number") {
+            totalMarketsUpdated += result.marketsUpdated;
+          }
+        } catch (error) {
+          // Ignore stats parse errors for individual systems
+        }
+      }
       ticked.push(systemId);
-    }));
-  }));
+    }
+  } finally {
+    isSystemTickInProgress = false;
+  }
   
   const systemsEndTime = Date.now();
   const systemsDuration = systemsEndTime - systemsStartTime;
+  console.log(
+    `[System Tick] Ticked ${ticked.length} systems in ${systemsDuration}ms ` +
+    `(systemsWithWork=${systemsWithWork}, ticks=${totalSystemTicksProcessed}, ` +
+    `arrivals=${totalArrivalsProcessed}, markets=${totalMarketsUpdated}, pendingArrivals=${totalPendingArrivals})`
+  );
 
   // Queue all NPC ships for asynchronous processing
 
@@ -1743,9 +2140,10 @@ async function handleGalaxyTick(corsHeaders: Record<string, string>): Promise<Re
   
   // Check queue size - if it's too large, skip adding ships to prevent backlog
   const QUEUE_BACKLOG_THRESHOLD = totalNPCs * 2; // Allow up to 2x total NPCs in queue
-  if (shipProcessingQueue.length > QUEUE_BACKLOG_THRESHOLD) {
+  const totalQueueSize = stationShipQueue.length + travelingShipQueue.length;
+  if (totalQueueSize > QUEUE_BACKLOG_THRESHOLD) {
     console.warn(
-      `[Galaxy Tick] Queue backlog detected: ${shipProcessingQueue.length} ships queued ` +
+      `[Galaxy Tick] Queue backlog detected: ${totalQueueSize} ships queued ` +
       `(threshold: ${QUEUE_BACKLOG_THRESHOLD}). Skipping this tick to allow queue to drain.`
     );
     return jsonResponse(
@@ -1755,29 +2153,54 @@ async function handleGalaxyTick(corsHeaders: Record<string, string>): Promise<Re
         shipsTicked: 0,
         totalNPCs,
         message: "Tick skipped due to queue backlog - processing previous tick's ships",
-        queueSize: shipProcessingQueue.length,
+        queueSize: totalQueueSize,
       },
       200,
       corsHeaders
     );
   }
   
-  // Add all ships to the queue for this tick (only if not already queued)
+  // Add only STATION ships to queue (traveling ships are handled by fast tick)
+  // Station ships (at_station) can take their time - no urgency
   for (let i = 0; i < totalNPCs; i++) {
     const shipId = `npc-${i}` as ShipId;
-    if (!queuedShipIds.has(shipId)) {
-      shipProcessingQueue.push({
-        shipId,
-        tickId: newTickId,
-      });
-      queuedShipIds.add(shipId);
+    // Check if ship is already in station queue
+    const alreadyInQueue = queuedStationShipIds.has(shipId) || 
+      stationShipQueue.some(q => q.shipId === shipId);
+    if (!alreadyInQueue) {
+      try {
+        const ship = localEnv.SHIP.get(localEnv.SHIP.idFromName(shipId));
+        const stateResponse = await ship.fetch(new Request("https://dummy/state"));
+        
+        if (stateResponse.ok) {
+          const state = await stateResponse.json();
+          
+          // Only queue at_station ships here (traveling ships handled by fast tick)
+          // Skip resting/sleeping NPCs - they're inactive
+          if (state.phase === "resting" || state.phase === "sleeping") {
+            continue;
+          }
+          
+          // Only queue at_station ships - traveling ships are handled separately
+          if (state.phase === "at_station") {
+            stationShipQueue.push({
+              shipId,
+              tickId: newTickId,
+            });
+            queuedStationShipIds.add(shipId);
+          }
+        }
+      } catch (error) {
+        // If we can't check state, skip it (better to be conservative)
+        continue;
+      }
     }
   }
   
-  // Start processing queue if not already running
-  if (!isProcessingQueue) {
-    processShipQueue(tickStartTime, systemsDuration).catch((error) => {
-      console.error("[Galaxy Tick] Error in ship queue processing:", error);
+  // Start processing station queue if not already running
+  if (!isProcessingStationQueue) {
+    processStationShipQueue(tickStartTime, systemsDuration).catch((error) => {
+      console.error("[Galaxy Tick] Error in station ship queue processing:", error);
     });
   }
   
@@ -2007,15 +2430,15 @@ async function maintainNPCPopulation(): Promise<void> {
  * Processes ships in small batches with delays, allowing other operations to proceed
  * This ensures the server remains responsive while processing thousands of ships
  */
-async function processShipQueue(
+async function processStationShipQueue(
   tickStartTime: number,
   systemsDuration: number
 ): Promise<void> {
-  if (isProcessingQueue) {
+  if (isProcessingStationQueue) {
     return; // Already processing
   }
   
-  isProcessingQueue = true;
+  isProcessingStationQueue = true;
   const shipsStartTime = Date.now();
   let shipsTicked = 0;
   let shipsSkipped = 0;
@@ -2023,20 +2446,46 @@ async function processShipQueue(
   let shipsArrivingAfter = 0;
   let shipsAtStation = 0;
   let processedCount = 0;
+  let systemPauseTime = 0;
+  let systemPauseCount = 0;
+  let travelingPauseTime = 0;
+  let travelingPauseCount = 0;
   
   try {
-    while (shipProcessingQueue.length > 0) {
-      // Process a batch of ships
-      const batch: QueuedShip[] = [];
-      
-      // Take up to SHIPS_PER_BATCH ships from the queue (process all ships regardless of tick ID)
-      while (batch.length < SHIPS_PER_BATCH && shipProcessingQueue.length > 0) {
-        const queuedShip = shipProcessingQueue.shift();
-        if (queuedShip) {
-          batch.push(queuedShip);
-          queuedShipIds.delete(queuedShip.shipId); // Remove from tracking set when processing
-        }
+    while (stationShipQueue.length > 0) {
+      if (isSystemTickInProgress) {
+        const pauseStart = Date.now();
+        systemPauseCount++;
+        await new Promise(resolve => setTimeout(resolve, 25));
+        systemPauseTime += Date.now() - pauseStart;
+        continue;
       }
+      if (isProcessingTravelingQueue) {
+        const pauseStart = Date.now();
+        travelingPauseCount++;
+        await new Promise(resolve => setTimeout(resolve, 10));
+        travelingPauseTime += Date.now() - pauseStart;
+        continue;
+      }
+
+      // Process one ship at a time (no batching for station ships)
+      const queuedShip = stationShipQueue.shift();
+      if (!queuedShip) {
+        break;
+      }
+      
+      // Check if this ship was already processed in a newer tick
+      if (queuedShip.tickId !== currentTickId && currentTickId !== null) {
+        // Ship from old tick - skip it
+        shipsSkipped++;
+        processedCount++;
+        continue;
+      }
+      
+      queuedStationShipIds.delete(queuedShip.shipId); // Remove from tracking set
+      
+      // Process single ship
+      const batch: QueuedShip[] = [queuedShip];
       
       // Process the batch in parallel for better performance
       await Promise.all(batch.map(async ({ shipId }) => {
@@ -2082,21 +2531,27 @@ async function processShipQueue(
         }
       }));
       
-      // If queue is empty, we're done
-      if (shipProcessingQueue.length === 0) {
-        break;
-      }
-      
-      // No delay - process as fast as possible
+      // Yield to event loop after each ship
+      await new Promise(resolve => setImmediate(resolve));
     }
   } finally {
-    isProcessingQueue = false;
+    isProcessingStationQueue = false;
   }
   
+  const shipsEndTime = Date.now();
+  const shipsDuration = shipsEndTime - shipsStartTime;
+  console.log(
+    `[Trading Tick] Processed ${processedCount} station ships (${shipsTicked} ticked, ${shipsSkipped} skipped) ` +
+    `in ${shipsDuration}ms (paused system=${systemPauseTime}ms/${systemPauseCount} waits, ` +
+    `traveling=${travelingPauseTime}ms/${travelingPauseCount} waits)`
+  );
+  
   // If there are still ships in the queue (from a new tick), continue processing
-  if (shipProcessingQueue.length > 0 && currentTickId) {
-    processShipQueue(tickStartTime, systemsDuration).catch((error) => {
-      console.error("[Galaxy Tick] Error in continued ship queue processing:", error);
+  if (stationShipQueue.length > 0 && currentTickId) {
+    setImmediate(() => {
+      processStationShipQueue(tickStartTime, systemsDuration).catch((error) => {
+        console.error("[Galaxy Tick] Error in continued station ship queue processing:", error);
+      });
     });
   }
 }
@@ -3158,10 +3613,17 @@ server.listen(PORT, async () => {
   setTradeLoggingMode("all");
 
   // Automatic simulation ticking every TICK_INTERVAL_MS (10 seconds)
+  let travelingTickInterval: NodeJS.Timeout | null = null;
+  
   function startAutoTick(): void {
     if (autoTickInterval) {
       clearInterval(autoTickInterval);
     }
+    if (travelingTickInterval) {
+      clearInterval(travelingTickInterval);
+    }
+    
+    // Normal tick for systems and station ships (30 seconds)
     autoTickInterval = setInterval(async () => {
       try {
         await handleGalaxyTick({}); // Empty CORS headers for internal calls
@@ -3169,14 +3631,28 @@ server.listen(PORT, async () => {
         console.error("Error in auto-tick:", error);
       }
     }, TICK_INTERVAL_MS);
+    
+    // Fast tick for traveling ships (10 seconds)
+    travelingTickInterval = setInterval(async () => {
+      try {
+        await handleTravelingTick();
+      } catch (error) {
+        console.error("Error in traveling-tick:", error);
+      }
+    }, TRAVELING_TICK_INTERVAL_MS);
+    
     autoTickEnabled = true;
-    console.log(`   Auto-tick enabled: every ${TICK_INTERVAL_MS / 1000} seconds`);
+    console.log(`   Auto-tick enabled: systems/station ships every ${TICK_INTERVAL_MS / 1000} seconds, traveling ships every ${TRAVELING_TICK_INTERVAL_MS / 1000} seconds`);
   }
   
   function stopAutoTick(): void {
     if (autoTickInterval) {
       clearInterval(autoTickInterval);
       autoTickInterval = null;
+    }
+    if (travelingTickInterval) {
+      clearInterval(travelingTickInterval);
+      travelingTickInterval = null;
     }
     autoTickEnabled = false;
     console.log(`   Auto-tick disabled`);

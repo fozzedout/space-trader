@@ -148,6 +148,12 @@ export class StarSystem {
     }
   }
 
+  private async ensureLoaded(): Promise<void> {
+    if (!this.systemState) {
+      await this.loadState();
+    }
+  }
+
   /**
    * Mark state as dirty (needs saving to DB)
    * Actual DB write happens via flushState() or periodic flush
@@ -296,7 +302,7 @@ export class StarSystem {
 
     }
 
-    await this.saveState();
+    this.dirty = true; // Mark as dirty - will be flushed at end of tick
 
     return new Response(JSON.stringify({ success: true }), {
       headers: { "Content-Type": "application/json" },
@@ -317,7 +323,7 @@ export class StarSystem {
       market.price = market.basePrice;
     }
 
-    await this.saveState();
+    this.dirty = true; // Mark as dirty - will be flushed at end of tick
 
     return new Response(JSON.stringify({ success: true }), {
       headers: { "Content-Type": "application/json" },
@@ -359,13 +365,20 @@ export class StarSystem {
     const ticksToProcess = Math.floor((now - this.systemState.lastTickTime) / TICK_INTERVAL_MS);
 
     if (ticksToProcess === 0) {
-      return new Response(JSON.stringify({ tick: this.systemState.currentTick, processed: 0 }), {
+      return new Response(JSON.stringify({
+        tick: this.systemState.currentTick,
+        processed: 0,
+        arrivalsProcessed: 0,
+        pendingArrivals: this.pendingArrivals.length,
+        marketsUpdated: 0,
+      }), {
         headers: { "Content-Type": "application/json" },
       });
     }
 
     const rng = new DeterministicRNG(this.systemState.seed);
 
+    let totalArrivalsProcessed = 0;
     // Process each tick deterministically
     for (let i = 0; i < ticksToProcess; i++) {
       this.systemState.currentTick++;
@@ -373,7 +386,7 @@ export class StarSystem {
       const tickTime = this.systemState.lastTickTime + (i + 1) * TICK_INTERVAL_MS;
 
       // Process ship arrivals for this tick
-      await this.processArrivals(tickTime);
+      totalArrivalsProcessed += await this.processArrivals(tickTime);
 
       // Count all active traders (NPCs and players) in this system for market volatility scaling
       const traderCount = this.shipsInSystem.size;
@@ -385,10 +398,20 @@ export class StarSystem {
     }
 
     this.systemState.lastTickTime = now;
-    await this.saveState();
+    this.dirty = true; // Mark as dirty during tick
+    
+    // Flush state once at the end of tick
+    await this.flushState();
 
+    const marketsUpdated = ticksToProcess * this.markets.size;
     return new Response(
-      JSON.stringify({ tick: this.systemState.currentTick, processed: ticksToProcess }),
+      JSON.stringify({
+        tick: this.systemState.currentTick,
+        processed: ticksToProcess,
+        arrivalsProcessed: totalArrivalsProcessed,
+        pendingArrivals: this.pendingArrivals.length,
+        marketsUpdated,
+      }),
       { headers: { "Content-Type": "application/json" } }
     );
   }
@@ -659,7 +682,13 @@ export class StarSystem {
     market.inventory = Math.max(0, market.inventory);
   }
 
-  private applyArrivalEffects(arrival: ShipArrivalEvent): void {
+  // Public method for direct NPC arrival notification (bypasses fetch overhead)
+  public async applyArrivalEffects(arrival: ShipArrivalEvent): Promise<void> {
+    await this.ensureLoaded();
+    if (!this.systemState) {
+      console.warn(`[System ${arrival.toSystem}] applyArrivalEffects called before initialization`);
+      return;
+    }
     this.shipsInSystem.add(arrival.shipId);
 
     // Update price info from origin system (rumors spread)
@@ -674,20 +703,27 @@ export class StarSystem {
         }
       }
     }
+    
+    // Mark as dirty - will be saved at end of tick
+    this.dirty = true;
   }
 
-  private async processArrivals(tickTime: number): Promise<void> {
+  private async processArrivals(tickTime: number): Promise<number> {
+    let processedCount = 0;
     // Process pending arrivals
     for (const arrival of this.pendingArrivals) {
       if (arrival.timestamp <= tickTime) {
-        this.applyArrivalEffects(arrival);
+        await this.applyArrivalEffects(arrival);
+        processedCount += 1;
         // Remove from pending
         this.pendingArrivals = this.pendingArrivals.filter(a => a.shipId !== arrival.shipId);
       }
     }
+    return processedCount;
   }
 
   private async handleShipArrival(request: Request): Promise<Response> {
+    // Fast path: just parse JSON and mark dirty, no processing
     const body = (await request.json()) as ShipArrivalEvent;
     const arrival: ShipArrivalEvent = {
       ...body,
@@ -699,12 +735,14 @@ export class StarSystem {
     if (arrival.timestamp > Date.now()) {
       this.pendingArrivals.push(arrival);
     } else {
-      this.applyArrivalEffects(arrival);
+      await this.applyArrivalEffects(arrival);
     }
 
-    await this.saveState();
+    // Mark as dirty - will be saved at end of tick
+    this.dirty = true;
 
-    return new Response(JSON.stringify({ success: true }), {
+    // Return immediately without JSON.stringify overhead - just return success
+    return new Response("{\"success\":true}", {
       headers: { "Content-Type": "application/json" },
     });
   }
@@ -713,7 +751,8 @@ export class StarSystem {
     const body = (await request.json()) as { shipId: ShipId };
     
     this.shipsInSystem.delete(body.shipId);
-    await this.saveState();
+    // Mark as dirty - will be saved at end of tick
+    this.dirty = true;
 
     return new Response(JSON.stringify({ success: true }), {
       headers: { "Content-Type": "application/json" },

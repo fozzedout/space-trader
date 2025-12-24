@@ -17,6 +17,7 @@ import {
   GoodId,
   Timestamp,
   TradeEvent,
+  ShipArrivalEvent,
   ShipArmaments,
   LaserType,
   LaserMount,
@@ -42,6 +43,9 @@ import {
   getLaserOptions,
   isValidLaserMount,
 } from "./armaments";
+import { profiler } from "./profiler";
+import { getCachedSnapshot } from "./snapshot-cache";
+import { StarSystem } from "./star-system";
 
 const HYPERSPACE_TRAVEL_TIME_MS = 0; // Instant - NPCs are transferred to another system processor (horizontal scaling)
 const DEPARTURE_TIME_MS = 10000; // ~10 seconds to leave planet's influence
@@ -146,7 +150,7 @@ export class Ship {
       } else if (path === "/initialize" && request.method === "POST") {
         return this.handleInitialize(request);
       } else if (path === "/tick" && request.method === "POST") {
-        return this.handleTick();
+        return this.handleTick(request);
       } else if (path === "/trade" && request.method === "POST") {
         return this.handleTrade(request);
       } else if (path === "/travel" && request.method === "POST") {
@@ -325,7 +329,14 @@ export class Ship {
       });
     }
 
-    this.updatePosition(Date.now());
+    const now = Date.now();
+    this.updatePosition(now);
+
+    // For player ships, immediately process phase transitions (lazy evaluation)
+    // This ensures players get instant updates without waiting for ticks
+    if (!this.shipState.isNPC) {
+      await this.processShipPhasesImmediate(now);
+    }
 
     return new Response(JSON.stringify(this.shipState, (key, value) => {
       if (value instanceof Map) {
@@ -335,6 +346,138 @@ export class Ship {
     }), {
       headers: { "Content-Type": "application/json" },
     });
+  }
+
+  /**
+   * Immediate phase processing for player ships (lazy evaluation)
+   * Processes time-based phase transitions without full tick logic
+   */
+  private async processShipPhasesImmediate(now: Timestamp): Promise<void> {
+    if (!this.shipState) return;
+
+    switch (this.shipState.phase) {
+      case "departing":
+        // Check if departure phase is complete
+        if (
+          this.shipState.departureStartTime !== null &&
+          now >= this.shipState.departureStartTime + DEPARTURE_TIME_MS
+        ) {
+          // Get origin system prices before transitioning
+          if (this.shipState.originSystem !== null) {
+            try {
+              const originSystemStub = this.env.STAR_SYSTEM.idFromName(
+                `system-${this.shipState.originSystem}`
+              );
+              const originSystem = this.env.STAR_SYSTEM.get(originSystemStub) as { fetch: (request: Request | string) => Promise<Response> };
+              const snapshotResponse = await originSystem.fetch(DO_INTERNAL("/snapshot"));
+              if (snapshotResponse.ok) {
+                const snapshotData = (await snapshotResponse.json()) as {
+                  markets: Record<GoodId, { price: number }>;
+                };
+                const priceInfo: Array<[GoodId, number]> = [];
+                for (const [goodId, market] of Object.entries(snapshotData.markets)) {
+                  priceInfo.push([goodId as GoodId, market.price]);
+                }
+                this.shipState.originPriceInfo = priceInfo;
+              }
+            } catch (error) {
+              // Continue even if we can't get prices
+            }
+          }
+          
+          // Consume fuel when entering hyperspace
+          if (this.shipState.destinationSystem !== null && this.shipState.originSystem !== null) {
+            const distance = await this.calculateSystemDistance(
+              this.shipState.originSystem,
+              this.shipState.destinationSystem
+            );
+            this.shipState.fuelLy = Math.max(0, this.shipState.fuelLy - distance);
+            this.dirty = true;
+          }
+          
+          // Transition to hyperspace
+          this.shipState.phase = "in_hyperspace";
+          this.shipState.hyperspaceStartTime = now;
+          this.shipState.positionX = null;
+          this.shipState.positionY = null;
+          this.dirty = true;
+          updateShipPresence(this.shipState);
+          
+          // Notify current system of departure
+          if (this.shipState.currentSystem !== null) {
+            const systemStub = this.env.STAR_SYSTEM.idFromName(
+              `system-${this.shipState.currentSystem}`
+            );
+            const system = this.env.STAR_SYSTEM.get(systemStub) as { fetch: (request: Request | string) => Promise<Response> };
+            await system.fetch(
+              new Request(DO_INTERNAL("/departure"), {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ shipId: this.shipState.id }),
+              })
+            );
+          }
+        }
+        break;
+
+      case "in_hyperspace":
+        // Hyperspace is instant - immediately transition to arrival phase
+        if (this.shipState.destinationSystem !== null) {
+          const rng = new DeterministicRNG(this.shipState.seed);
+          const spawnLeeway = rng.randomInt(0, SPAWN_LEEWAY_MS);
+          const spawnDistance = rng.randomFloat(ARRIVAL_MIN_SU, ARRIVAL_MAX_SU);
+          const spawnAngle = rng.random() * Math.PI * 2;
+          this.shipState.arrivalStartX = Math.cos(spawnAngle) * spawnDistance;
+          this.shipState.arrivalStartY = Math.sin(spawnAngle) * spawnDistance;
+          this.shipState.positionX = this.shipState.arrivalStartX;
+          this.shipState.positionY = this.shipState.arrivalStartY;
+
+          this.shipState.phase = "arriving";
+          this.shipState.currentSystem = this.shipState.destinationSystem;
+          this.shipState.arrivalStartTime = now + spawnLeeway;
+          const travelTimeMs = Math.round((spawnDistance / MAX_SPEED_SU_S) * 1000);
+          this.shipState.arrivalCompleteTime = this.shipState.arrivalStartTime + travelTimeMs;
+          this.dirty = true;
+          updateShipPresence(this.shipState);
+        }
+        break;
+
+      case "arriving":
+        // Check if arrival phase is complete
+        if (
+          this.shipState.arrivalCompleteTime !== null &&
+          now >= this.shipState.arrivalCompleteTime
+        ) {
+          if (this.shipState.currentSystem === null && this.shipState.destinationSystem !== null) {
+            this.shipState.currentSystem = this.shipState.destinationSystem;
+          }
+          
+          // Ship has reached the station
+          try {
+            await this.handleArrival();
+          } catch (error) {
+            // Don't rethrow - allow ship to continue processing
+          }
+        }
+        break;
+
+      case "resting":
+      case "sleeping":
+        // Check if rest/sleep is complete
+        if (
+          this.shipState.restEndTime !== null &&
+          now >= this.shipState.restEndTime
+        ) {
+          this.shipState.phase = "at_station";
+          this.shipState.restStartTime = null;
+          this.shipState.restEndTime = null;
+          this.shipState.positionX = 0;
+          this.shipState.positionY = 0;
+          this.dirty = true;
+          updateShipPresence(this.shipState);
+        }
+        break;
+    }
   }
 
   private updatePosition(now: number): void {
@@ -466,7 +609,7 @@ export class Ship {
       }
       this.shipState.credits -= totalCost;
       this.shipState.hullIntegrity += repairPoints;
-      await this.saveState();
+      this.dirty = true; // Mark as dirty - will be flushed at end of tick
       return new Response(JSON.stringify({
         success: true,
         repaired: repairPoints,
@@ -503,7 +646,7 @@ export class Ship {
         const payout = applySellTax(baseValue);
         this.shipState.credits += payout;
         this.shipState.armaments.lasers[body.mount as LaserMount] = null;
-        await this.saveState();
+        this.dirty = true; // Mark as dirty - will be flushed at end of tick
         return new Response(JSON.stringify({ success: true, payout, armaments: this.shipState.armaments }), {
           headers: { "Content-Type": "application/json" },
         });
@@ -522,7 +665,7 @@ export class Ship {
         const payout = applySellTax(baseValue);
         this.shipState.armaments.missiles -= sellQty;
         this.shipState.credits += payout;
-        await this.saveState();
+        this.dirty = true; // Mark as dirty - will be flushed at end of tick
         return new Response(JSON.stringify({ success: true, payout, armaments: this.shipState.armaments }), {
           headers: { "Content-Type": "application/json" },
         });
@@ -539,7 +682,7 @@ export class Ship {
         const payout = applySellTax(baseValue);
         this.shipState.armaments.ecm = false;
         this.shipState.credits += payout;
-        await this.saveState();
+        this.dirty = true; // Mark as dirty - will be flushed at end of tick
         return new Response(JSON.stringify({ success: true, payout, armaments: this.shipState.armaments }), {
           headers: { "Content-Type": "application/json" },
         });
@@ -556,7 +699,7 @@ export class Ship {
         const payout = applySellTax(baseValue);
         this.shipState.armaments.energyBomb = false;
         this.shipState.credits += payout;
-        await this.saveState();
+        this.dirty = true; // Mark as dirty - will be flushed at end of tick
         return new Response(JSON.stringify({ success: true, payout, armaments: this.shipState.armaments }), {
           headers: { "Content-Type": "application/json" },
         });
@@ -630,7 +773,7 @@ export class Ship {
       if (logDecisions) {
         logDecision(this.shipState.id, `  Fuel purchase: credits ${creditsBefore.toFixed(2)} -> ${this.shipState.credits.toFixed(2)} (cost: ${cost.toFixed(2)} cr, bought ${fuelToBuy.toFixed(1)} LY, fuel now ${this.shipState.fuelLy.toFixed(1)}/${this.shipState.fuelCapacityLy.toFixed(1)} LY)`);
       }
-      await this.saveState();
+      this.dirty = true; // Mark as dirty - will be flushed at end of tick
       return new Response(JSON.stringify({ success: true, cost, fuelLy: this.shipState.fuelLy, fuelBought: fuelToBuy }), {
         headers: { "Content-Type": "application/json" },
       });
@@ -669,7 +812,7 @@ export class Ship {
       if (logDecisions) {
         logDecision(this.shipState.id, `  Laser purchase: credits ${creditsBefore.toFixed(2)} -> ${this.shipState.credits.toFixed(2)} (cost: ${cost} cr, ${laserType} on ${body.mount})`);
       }
-      await this.saveState();
+      this.dirty = true; // Mark as dirty - will be flushed at end of tick
       return new Response(JSON.stringify({ success: true, cost, armaments: this.shipState.armaments }), {
         headers: { "Content-Type": "application/json" },
       });
@@ -700,7 +843,7 @@ export class Ship {
       }
       this.shipState.credits -= cost;
       this.shipState.armaments.missiles += purchasable;
-      await this.saveState();
+      this.dirty = true; // Mark as dirty - will be flushed at end of tick
       return new Response(JSON.stringify({ success: true, cost, armaments: this.shipState.armaments }), {
         headers: { "Content-Type": "application/json" },
       });
@@ -735,7 +878,7 @@ export class Ship {
       if (logDecisions) {
         logDecision(this.shipState.id, `  ECM purchase: credits ${creditsBefore.toFixed(2)} -> ${this.shipState.credits.toFixed(2)} (cost: ${cost} cr)`);
       }
-      await this.saveState();
+      this.dirty = true; // Mark as dirty - will be flushed at end of tick
       return new Response(JSON.stringify({ success: true, cost, armaments: this.shipState.armaments }), {
         headers: { "Content-Type": "application/json" },
       });
@@ -770,7 +913,7 @@ export class Ship {
       if (logDecisions) {
         logDecision(this.shipState.id, `  Energy bomb purchase: credits ${creditsBefore.toFixed(2)} -> ${this.shipState.credits.toFixed(2)} (cost: ${cost} cr)`);
       }
-      await this.saveState();
+      this.dirty = true; // Mark as dirty - will be flushed at end of tick
       return new Response(JSON.stringify({ success: true, cost, armaments: this.shipState.armaments }), {
         headers: { "Content-Type": "application/json" },
       });
@@ -791,6 +934,13 @@ export class Ship {
     }
 
     try {
+      // Try cache first
+      const cachedSnapshot = getCachedSnapshot(this.shipState.currentSystem);
+      if (cachedSnapshot && cachedSnapshot.state && cachedSnapshot.state.techLevel !== undefined) {
+        return cachedSnapshot.state.techLevel;
+      }
+      
+      // Fallback to fetch if not in cache or techLevel missing
       const systemStub = this.env.STAR_SYSTEM.idFromName(
         `system-${this.shipState.currentSystem}`
       );
@@ -826,9 +976,9 @@ export class Ship {
     // This is critical when reinitializing the galaxy - old cargo from previous
     // initialization could cause sell failures if markets changed
     try {
-      if (this.state?.storage) {
-        // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-        await this.state.storage!.delete("state");
+      const state = this.state;
+      if (state?.storage && state.storage.delete) {
+        await state.storage.delete("state");
       }
     } catch (error) {
       // Ignore storage errors during reset
@@ -871,13 +1021,7 @@ export class Ship {
       lastCargoPurchaseTick: null,
     };
 
-    await this.saveState();
-    
-    // Force immediate flush to database to ensure empty cargo is persisted
-    // This prevents race conditions where ship might be loaded from database
-    // with old cargo before the normal flush cycle happens
-    await this.flushState();
-    
+    this.dirty = true; // Mark as dirty - will be flushed at end of tick
     updateShipPresence(this.shipState);
 
     return new Response(JSON.stringify({ success: true }), {
@@ -885,7 +1029,7 @@ export class Ship {
     });
   }
 
-  private async handleTick(): Promise<Response> {
+  private async handleTick(request: Request): Promise<Response> {
     if (!this.shipState) {
       return new Response(JSON.stringify({ error: "Ship not initialized" }), {
         status: 400,
@@ -895,6 +1039,7 @@ export class Ship {
 
     const now = Date.now();
     const rng = new DeterministicRNG(this.shipState.seed);
+    const isTravelingTick = request.headers.get("X-Traveling-Tick") === "true";
 
     // Apply air purifier tax to NPCs (1 credit per tick)
     // Air purifier tax only applies when NPC is at a station (not while traveling)
@@ -940,15 +1085,20 @@ export class Ship {
     }
 
     // Process ship phases based on current state
-    await this.processShipPhases(now, rng);
+    await profiler.timeAsync(`ship-${this.shipState.id}-processShipPhases`, () => 
+      this.processShipPhases(now, rng)
+    );
 
     // Skip processing if NPC is resting or sleeping (ignore pool)
     if (
+      this.shipState &&
       this.shipState.isNPC &&
       (this.shipState.phase === "resting" || this.shipState.phase === "sleeping")
     ) {
-      updateShipPresence(this.shipState);
-      await this.saveState();
+      profiler.time("ship-updatePresence-resting", () => {
+        if (this.shipState) updateShipPresence(this.shipState);
+      });
+      this.dirty = true; // Mark as dirty - will be flushed at end of tick
       return new Response(JSON.stringify({ success: true, skipped: true, reason: "resting" }), {
         headers: { "Content-Type": "application/json" },
       });
@@ -956,9 +1106,13 @@ export class Ship {
 
     // Record tick for leaderboard
     try {
-      if (this.shipState.isNPC) {
-        recordTick(this.shipState.id, this.shipState.name);
-        updateTraderCredits(this.shipState.id, this.shipState.name, this.shipState.credits);
+      if (this.shipState && this.shipState.isNPC) {
+        profiler.time("ship-leaderboard-recordTick", () => {
+          if (this.shipState) {
+            recordTick(this.shipState.id, this.shipState.name);
+            updateTraderCredits(this.shipState.id, this.shipState.name, this.shipState.credits);
+          }
+        });
       }
     } catch (error) {
       // Don't let leaderboard errors break ticks
@@ -966,19 +1120,28 @@ export class Ship {
 
     // If ship is at station and is NPC, make trading decisions
     if (
+      this.shipState &&
       this.shipState.phase === "at_station" &&
       this.shipState.currentSystem !== null &&
-      this.shipState.isNPC
+      this.shipState.isNPC &&
+      !isTravelingTick
     ) {
       try {
-        await this.makeNPCTradingDecision();
+        await profiler.timeAsync(`ship-${this.shipState.id}-makeNPCTradingDecision`, () => 
+          this.makeNPCTradingDecision()
+        );
       } catch (error) {
         console.error(`[Ship ${this.shipState.id}] Error in makeNPCTradingDecision:`, error);
       }
     }
 
-    updateShipPresence(this.shipState);
-    await this.saveState();
+    if (this.shipState) {
+      const shipState = this.shipState; // Capture for closure
+      profiler.time("ship-updatePresence", () => updateShipPresence(shipState));
+    }
+    
+    // Mark as dirty during tick - will be flushed at end of galaxy tick
+    this.dirty = true;
 
     return new Response(JSON.stringify({ success: true }), {
       headers: { "Content-Type": "application/json" },
@@ -1035,6 +1198,7 @@ export class Ship {
           this.shipState.hyperspaceStartTime = now;
           this.shipState.positionX = null;
           this.shipState.positionY = null;
+          this.dirty = true;
           updateShipPresence(this.shipState);
           
           // Notify current system of departure
@@ -1134,18 +1298,25 @@ export class Ship {
       console.warn(`[Ship] handleArrival called but shipState is null`);
       return;
     }
+    
+    const shipId = this.shipState.id;
+    return await profiler.timeAsync(`ship-${shipId}-handleArrival`, async () => {
+      if (!this.shipState) {
+        console.warn(`[Ship] handleArrival called but shipState is null`);
+        return;
+      }
 
-    // Get the system ID - use currentSystem if available, otherwise use destinationSystem
-    // This handles cases where currentSystem might not be set yet
-    const systemId = this.shipState.currentSystem ?? this.shipState.destinationSystem;
-    if (systemId === null || systemId === undefined) {
-      console.warn(`[Ship ${this.shipState.id}] handleArrival called but both currentSystem and destinationSystem are null`);
-      return;
-    }
-    const systemStub = this.env.STAR_SYSTEM.idFromName(`system-${systemId}`);
-            const system = this.env.STAR_SYSTEM.get(systemStub) as { fetch: (request: Request | string) => Promise<Response> };
+      // Get the system ID - use currentSystem if available, otherwise use destinationSystem
+      // This handles cases where currentSystem might not be set yet
+      const systemId = this.shipState.currentSystem ?? this.shipState.destinationSystem;
+      if (systemId === null || systemId === undefined) {
+        console.warn(`[Ship ${this.shipState.id}] handleArrival called but both currentSystem and destinationSystem are null`);
+        return;
+      }
+      const systemStub = this.env.STAR_SYSTEM.idFromName(`system-${systemId}`);
+      const system = this.env.STAR_SYSTEM.get(systemStub) as StarSystem | { fetch: (request: Request | string) => Promise<Response> };
 
-    try {
+      try {
       // Fix: Use stored origin system and prices instead of destination system
       const fromSystem = this.shipState.originSystem;
       let priceInfo: Array<[GoodId, number]>;
@@ -1154,22 +1325,32 @@ export class Ship {
         // Use stored origin prices
         priceInfo = this.shipState.originPriceInfo;
       } else {
-        // Fallback: try to get prices from origin system if we have it
+        // Fallback: try to get prices from origin system if we have it (use cache if available)
         if (fromSystem !== null && fromSystem !== systemId) {
           try {
-            const originSystemStub = this.env.STAR_SYSTEM.idFromName(`system-${fromSystem}`);
-            const originSystem = this.env.STAR_SYSTEM.get(originSystemStub) as { fetch: (request: Request | string) => Promise<Response> };
-            const snapshotResponse = await originSystem.fetch(DO_INTERNAL("/snapshot"));
-            if (snapshotResponse.ok) {
-              const snapshotData = (await snapshotResponse.json()) as {
-                markets: Record<GoodId, { price: number }>;
-              };
+            const cachedOriginSnapshot = getCachedSnapshot(fromSystem);
+            if (cachedOriginSnapshot && cachedOriginSnapshot.markets) {
+              // Use cached snapshot
               priceInfo = [];
-              for (const [goodId, market] of Object.entries(snapshotData.markets)) {
+              for (const [goodId, market] of Object.entries(cachedOriginSnapshot.markets)) {
                 priceInfo.push([goodId as GoodId, market.price]);
               }
             } else {
-              priceInfo = [];
+              // Fallback to fetch if not in cache
+              const originSystemStub = this.env.STAR_SYSTEM.idFromName(`system-${fromSystem}`);
+              const originSystem = this.env.STAR_SYSTEM.get(originSystemStub) as { fetch: (request: Request | string) => Promise<Response> };
+              const snapshotResponse = await originSystem.fetch(DO_INTERNAL("/snapshot"));
+              if (snapshotResponse.ok) {
+                const snapshotData = (await snapshotResponse.json()) as {
+                  markets: Record<GoodId, { price: number }>;
+                };
+                priceInfo = [];
+                for (const [goodId, market] of Object.entries(snapshotData.markets)) {
+                  priceInfo.push([goodId as GoodId, market.price]);
+                }
+              } else {
+                priceInfo = [];
+              }
             }
           } catch (error) {
             console.error(`[Ship ${this.shipState.id}] Error getting origin prices:`, error);
@@ -1181,23 +1362,101 @@ export class Ship {
       }
 
       // Notify destination system of arrival
-      const arrivalResponse = await system.fetch(
-        new Request(DO_INTERNAL("/arrival"), {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            timestamp: Date.now(),
-            shipId: this.shipState.id,
-            fromSystem: fromSystem !== null ? fromSystem : systemId, // Use stored origin system
-            toSystem: systemId,
-            cargo: Array.from(this.shipState.cargo.entries()),
-            priceInfo: priceInfo,
-          }),
-        })
-      );
+      if (!this.shipState) {
+        throw new Error("shipState is null");
+      }
+      const shipIdForArrival = this.shipState.id;
+      const cargoForArrival = Array.from(this.shipState.cargo.entries());
+      
+      // For NPCs in local mode, call the function directly to bypass fetch overhead
+      // In local mode, system.get() returns the actual StarSystem instance
+      if (this.shipState.isNPC && system) {
+        // Try direct function call first (local mode)
+        // Build arrival event
+        const arrivalEvent: ShipArrivalEvent = {
+          timestamp: Date.now(),
+          shipId: shipIdForArrival,
+          fromSystem: fromSystem !== null ? fromSystem : systemId,
+          toSystem: systemId,
+          cargo: new Map(cargoForArrival),
+          priceInfo: new Map(priceInfo),
+        };
+        
+        // Try to call applyArrivalEffects directly
+        // In local mode, system.get() returns the actual StarSystem instance
+        let usedDirectCall = false;
+        
+        // Try to access the method directly - check both instance and prototype
+        // TypeScript allows accessing the method even if it might not exist at runtime
+        try {
+          const systemAsStarSystem = system as StarSystem;
+          // Try accessing the method - if it exists, call it
+          if (systemAsStarSystem.applyArrivalEffects && typeof systemAsStarSystem.applyArrivalEffects === 'function') {
+            await profiler.timeAsync(`ship-${shipIdForArrival}-handleArrival-direct-${systemId}`, async () => {
+              await systemAsStarSystem.applyArrivalEffects(arrivalEvent);
+            });
+            usedDirectCall = true;
+          } else {
+            // Try prototype chain
+            const proto = Object.getPrototypeOf(system);
+            if (proto && proto.applyArrivalEffects && typeof proto.applyArrivalEffects === 'function') {
+              await profiler.timeAsync(`ship-${shipIdForArrival}-handleArrival-direct-${systemId}`, async () => {
+                await proto.applyArrivalEffects.call(systemAsStarSystem, arrivalEvent);
+              });
+              usedDirectCall = true;
+            }
+          }
+        } catch (error) {
+          // Method doesn't exist or call failed - will fall back to fetch
+          // This is expected in Cloudflare Workers mode
+        }
+        
+        // Fallback to fetch if direct call wasn't used
+        if (!usedDirectCall) {
+          const systemWithFetch = system as { fetch: (request: Request | string) => Promise<Response> };
+          const arrivalResponse = await profiler.timeAsync(`ship-${shipIdForArrival}-handleArrival-notify-${systemId}`, async () => {
+            return await systemWithFetch.fetch(
+              new Request(DO_INTERNAL("/arrival"), {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  timestamp: Date.now(),
+                  shipId: shipIdForArrival,
+                  fromSystem: fromSystem !== null ? fromSystem : systemId,
+                  toSystem: systemId,
+                  cargo: cargoForArrival,
+                  priceInfo: priceInfo,
+                }),
+              })
+            );
+          });
+          if (!arrivalResponse.ok) {
+            throw new Error(`Failed to notify arrival: ${arrivalResponse.status}`);
+          }
+        }
+      } else {
+        // Fallback to fetch for players or Cloudflare Workers
+        const systemWithFetch = system as { fetch: (request: Request | string) => Promise<Response> };
+        const arrivalResponse = await profiler.timeAsync(`ship-${shipIdForArrival}-handleArrival-notify-${systemId}`, async () => {
+          return await systemWithFetch.fetch(
+            new Request(DO_INTERNAL("/arrival"), {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                timestamp: Date.now(),
+                shipId: shipIdForArrival,
+                fromSystem: fromSystem !== null ? fromSystem : systemId, // Use stored origin system
+                toSystem: systemId,
+                cargo: cargoForArrival,
+                priceInfo: priceInfo,
+              }),
+            })
+          );
+        });
 
-      if (!arrivalResponse.ok) {
-        throw new Error(`Failed to notify arrival: ${arrivalResponse.status}`);
+        if (!arrivalResponse.ok) {
+          throw new Error(`Failed to notify arrival: ${arrivalResponse.status}`);
+        }
       }
 
       // Record travel route for leaderboard (before clearing destinationSystem)
@@ -1226,10 +1485,11 @@ export class Ship {
       this.shipState.arrivalStartX = null;
       this.shipState.arrivalStartY = null;
       updateShipPresence(this.shipState);
-    } catch (error) {
-      console.error(`[Ship ${this.shipState.id}] Error in handleArrival for system ${systemId}:`, error);
-      throw error; // Re-throw so caller can handle it
-    }
+      } catch (error) {
+        console.error(`[Ship ${this.shipState.id}] Error in handleArrival for system ${systemId}:`, error);
+        throw error; // Re-throw so caller can handle it
+      }
+    });
   }
 
   private async makeNPCTradingDecision(): Promise<void> {
@@ -1296,22 +1556,31 @@ export class Ship {
       return; // Skip trading this tick if starting rest
     }
 
-    // Get current system market snapshot
-    const systemStub = this.env.STAR_SYSTEM.idFromName(
-      `system-${this.shipState.currentSystem}`
-    );
-    const system = this.env.STAR_SYSTEM.get(systemStub) as { fetch: (request: Request | string) => Promise<Response> };
-
+    // Get current system market snapshot (use cache if available)
     let snapshot: { markets: Record<GoodId, { price: number; inventory: number; production?: number; consumption?: number }> };
     try {
-      const snapshotResponse = await system.fetch(DO_INTERNAL("/snapshot"));
-      if (!snapshotResponse.ok) {
-        console.error(`[Ship ${this.shipState.id}] Failed to get snapshot: ${snapshotResponse.status}`);
-        return;
+      const cachedSnapshot = getCachedSnapshot(this.shipState.currentSystem);
+      if (cachedSnapshot) {
+        // Use cached snapshot
+        snapshot = { markets: cachedSnapshot.markets };
+      } else {
+        // Fallback to fetch if not in cache
+        const systemStub = this.env.STAR_SYSTEM.idFromName(
+          `system-${this.shipState.currentSystem}`
+        );
+        const system = this.env.STAR_SYSTEM.get(systemStub) as { fetch: (request: Request | string) => Promise<Response> };
+        snapshot = await profiler.timeAsync(`ship-${this.shipState?.id || 'unknown'}-getSnapshot-system-${this.shipState?.currentSystem || 'unknown'}`, async () => {
+          const snapshotResponse = await system.fetch(DO_INTERNAL("/snapshot"));
+          if (!snapshotResponse.ok) {
+            const shipId = this.shipState?.id || 'unknown';
+            console.error(`[Ship ${shipId}] Failed to get snapshot: ${snapshotResponse.status}`);
+            throw new Error(`Failed to get snapshot: ${snapshotResponse.status}`);
+          }
+          return (await snapshotResponse.json()) as {
+            markets: Record<GoodId, { price: number; inventory: number; production?: number; consumption?: number }>;
+          };
+        });
       }
-      snapshot = (await snapshotResponse.json()) as {
-        markets: Record<GoodId, { price: number; inventory: number; production?: number; consumption?: number }>;
-      };
     } catch (error) {
       console.error(`[Ship ${this.shipState.id}] Error fetching snapshot:`, error);
       return;
@@ -1358,7 +1627,9 @@ export class Ship {
           if (logDecisions && emergencySell) {
             logDecision(this.shipState.id, `  Emergency sell: canAffordFuel=${canAffordFuel}, maintenanceDue=${maintenanceDue}`);
           }
-          const sold = await this.trySellGoods(snapshot.markets, decisionRng, emergencySell);
+          const sold = await profiler.timeAsync(`ship-${this.shipState.id}-trySellGoods`, () => 
+            this.trySellGoods(snapshot.markets, decisionRng, emergencySell)
+          );
           actionTaken = sold;
           if (logDecisions) {
             const remainingCargo = Array.from(this.shipState.cargo.entries()).filter(([_, qty]) => qty > 0).map(([g, q]) => `${g}:${q}`).join(", ") || "none";
@@ -1400,13 +1671,17 @@ export class Ship {
                   if (logDecisions) {
                     logDecision(this.shipState.id, `  After successful sell: good buy opportunity found, attempting to buy goods`);
                   }
-                  const bought = await this.tryBuyGoods(snapshot.markets, decisionRng);
+                  const bought = await profiler.timeAsync(`ship-${this.shipState.id}-tryBuyGoods`, () => 
+                    this.tryBuyGoods(snapshot.markets, decisionRng)
+                  );
                   if (!bought) {
                     // Couldn't buy - travel to find goods
                     if (logDecisions) {
                       logDecision(this.shipState.id, `  Buy failed after sell, attempting travel`);
                     }
-                    await this.tryTravel(decisionRng);
+                    await profiler.timeAsync(`ship-${this.shipState.id}-tryTravel`, () => 
+                      this.tryTravel(decisionRng)
+                    );
                   }
                 } else {
                   // No good buying opportunities - travel to find better markets
@@ -1437,7 +1712,9 @@ export class Ship {
               `Cargo: [${cargoSummary}], credits: ${this.shipState.credits.toFixed(2)}, ` +
               `current system: ${this.shipState.currentSystem}`
             );
-            const travelStarted = await this.tryTravel(decisionRng);
+            const travelStarted = await profiler.timeAsync(`ship-${this.shipState.id}-tryTravel`, () => 
+            this.tryTravel(decisionRng)
+          );
             actionTaken = travelStarted;
             if (travelStarted) {
               if (logDecisions) {
@@ -1466,7 +1743,9 @@ export class Ship {
           if (logDecisions) {
             logDecision(this.shipState.id, `ACTION: Attempting to travel (not selling here)`);
           }
-          const travelStarted = await this.tryTravel(decisionRng);
+          const travelStarted = await profiler.timeAsync(`ship-${this.shipState.id}-tryTravel`, () => 
+            this.tryTravel(decisionRng)
+          );
           actionTaken = travelStarted;
           
           // If travel failed and we have cargo, try to sell anyway (even at smaller profit)
@@ -1845,30 +2124,30 @@ export class Ship {
     const weights = getTradeScoringWeights();
     const good = candidate.good;
     
-    // 1. Profit margin (30% weight)
-    const profitMargin = (netSellPrice - purchasePrice) / purchasePrice;
-    const marginScore = profitMargin * weights.profitMargin;
-    
-    // 2. Profit per cargo space - efficiency (25% weight)
+    // 1. Total Profit - primary factor (formula: (SellPrice - BuyPrice) * Min(CargoSpace, Credits/BuyPrice))
+    // This is the actual profit in credits, not percentage margin
     const profitPerUnit = netSellPrice - purchasePrice;
+    const totalProfit = profitPerUnit * affordableQuantity;
+    // Normalize to ~1000 cr scale for comparison across different trade sizes
+    const totalProfitScore = (totalProfit / 1000) * weights.totalProfitPotential;
+    
+    // 2. Profit per cargo space - efficiency (secondary factor)
+    // Rewards efficient use of cargo space (important when cargo is limited)
     const profitPerCargoSpace = profitPerUnit / good.weight;
     // Normalize by base price to make it comparable across goods
     const efficiencyScore = (profitPerCargoSpace / good.basePrice) * weights.profitPerCargoSpace;
     
-    // 3. Total profit potential - volume (25% weight)
-    const totalProfit = profitPerUnit * affordableQuantity;
-    // Normalize to ~1000 cr scale for comparison
-    const volumeScore = (totalProfit / 1000) * weights.totalProfitPotential;
-    
-    // 4. Inventory pressure - market need (20% weight)
-    // Higher inventory relative to expected stock = more pressure to trade
+    // 3. Inventory pressure - market need (tertiary factor)
+    // LOW inventory = HIGH pressure to BUY (bring goods in)
+    // HIGH inventory = LOW pressure to BUY (market is saturated)
     const expectedStock = Math.max(1, (market.production + market.consumption) * 10);
     const inventoryRatio = market.inventory / expectedStock;
-    // Bonus up to 2x when inventory is high (needs trading)
-    const pressureMultiplier = Math.min(2.0, inventoryRatio / 0.5);
+    // Invert: low ratio (low inventory) = high multiplier (high pressure to buy)
+    // Map from [0, 1] to [2.0, 0.2] where 0 = max pressure, 1 = min pressure
+    const pressureMultiplier = 2.0 - (inventoryRatio * 1.8); // 2.0 when ratio=0, 0.2 when ratio=1
     const pressureScore = pressureMultiplier * weights.inventoryPressure;
     
-    const totalScore = marginScore + efficiencyScore + volumeScore + pressureScore;
+    const totalScore = totalProfitScore + efficiencyScore + pressureScore;
     return totalScore;
   }
 
@@ -2727,11 +3006,14 @@ export class Ship {
     const currentSystemObj = this.env.STAR_SYSTEM.get(currentSystemStub) as { fetch: (request: Request | string) => Promise<Response> };
     let currentCoords: { x: number; y: number } | null = null;
     try {
-      const currentSnapshot = await currentSystemObj.fetch(DO_INTERNAL("/snapshot"));
-      const currentData = (await currentSnapshot.json()) as { state: { x?: number; y?: number } | null };
-      if (currentData.state) {
-        currentCoords = { x: currentData.state.x ?? 0, y: currentData.state.y ?? 0 };
-      }
+      currentCoords = await profiler.timeAsync(`ship-${this.shipState.id}-getCurrentCoords`, async () => {
+        const currentSnapshot = await currentSystemObj.fetch(DO_INTERNAL("/snapshot"));
+        const currentData = (await currentSnapshot.json()) as { state: { x?: number; y?: number } | null };
+        if (currentData.state) {
+          return { x: currentData.state.x ?? 0, y: currentData.state.y ?? 0 };
+        }
+        return null;
+      });
     } catch (error) {
       console.warn(`[Ship ${this.shipState.id}] Failed to get current system coordinates:`, error);
     }
@@ -2754,44 +3036,86 @@ export class Ship {
     // Get current system markets for comparison
     let currentMarkets: Record<GoodId, { price: number; inventory: number }> | null = null;
     try {
-      const currentSnapshot = await currentSystemObj.fetch(DO_INTERNAL("/snapshot"));
-      const currentSnapshotData = (await currentSnapshot.json()) as { markets?: Record<GoodId, { price: number; inventory: number }> };
-      currentMarkets = currentSnapshotData.markets || null;
+      currentMarkets = await profiler.timeAsync(`ship-${this.shipState.id}-getCurrentMarkets`, async () => {
+        const currentSnapshot = await currentSystemObj.fetch(DO_INTERNAL("/snapshot"));
+        const currentSnapshotData = (await currentSnapshot.json()) as { markets?: Record<GoodId, { price: number; inventory: number }> };
+        return currentSnapshotData.markets || null;
+      });
     } catch (error) {
       // Ignore - will use fallback
     }
+    
+    let snapshotFetchCount = 0;
+    const maxSnapshotFetches = 20; // Limit snapshot fetches to prevent excessive I/O (was up to 100)
+    const minGoodCandidates = 3; // Stop early if we find this many good candidates
     
     for (let i = startSystem; i <= endSystem; i++) {
       const systemId = i as SystemId;
       if (systemId === currentSystem) continue;
       
+      // Early exit: if we have enough good candidates and hit snapshot limit, stop searching
+      if (snapshotFetchCount >= maxSnapshotFetches) {
+        const goodCandidates = nearbySystems.filter(s => s.score > 10).length;
+        if (goodCandidates >= minGoodCandidates) {
+          if (logDecisions) {
+            logDecision(this.shipState.id, `  Early exit: found ${goodCandidates} good candidates after ${snapshotFetchCount} snapshot fetches`);
+          }
+          break;
+        }
+        // Continue with simple distance for remaining systems if we don't have enough candidates
+      }
+      
       let distance: number;
       let targetMarkets: Record<GoodId, { price: number; inventory: number }> | null = null;
       
-      if (currentCoords) {
-        // Get target system coordinates and calculate 2D distance
-        try {
-          const targetSystemStub = this.env.STAR_SYSTEM.idFromName(`system-${systemId}`);
-          const targetSystemObj = this.env.STAR_SYSTEM.get(targetSystemStub) as { fetch: (request: Request | string) => Promise<Response> };
-          const targetSnapshot = await targetSystemObj.fetch(DO_INTERNAL("/snapshot"));
-          const targetData = (await targetSnapshot.json()) as { 
-            state: { x?: number; y?: number } | null;
-            markets?: Record<GoodId, { price: number; inventory: number }>;
+      if (currentCoords && snapshotFetchCount < maxSnapshotFetches) {
+        // Try to get cached snapshot first (per-tick cache to avoid duplicate fetches)
+        let targetData: { 
+          state: { x?: number; y?: number } | null;
+          markets?: Record<GoodId, { price: number; inventory: number }>;
+        } | null = null;
+        
+        // Check cache first (cache is per-tick and cleared between ticks)
+        const cachedSnapshot = getCachedSnapshot(systemId);
+        if (cachedSnapshot) {
+          targetData = {
+            state: cachedSnapshot.state,
+            markets: cachedSnapshot.markets as Record<GoodId, { price: number; inventory: number }>,
           };
-          
-          if (targetData.state) {
-            const targetX = targetData.state.x ?? 0;
-            const targetY = targetData.state.y ?? 0;
-            distance = this.calculateDistance(currentCoords.x, currentCoords.y, targetX, targetY);
-          } else {
-            // Fallback to simple distance if state is null
+        } else {
+          // Fallback to fetch if not in cache
+          try {
+            snapshotFetchCount++;
+            const targetSystemStub = this.env.STAR_SYSTEM.idFromName(`system-${systemId}`);
+            const targetSystemObj = this.env.STAR_SYSTEM.get(targetSystemStub) as { fetch: (request: Request | string) => Promise<Response> };
+            targetData = await profiler.timeAsync(`ship-${this.shipState.id}-getTargetSnapshot-${systemId}`, async () => {
+              const targetSnapshot = await targetSystemObj.fetch(DO_INTERNAL("/snapshot"));
+              return (await targetSnapshot.json()) as { 
+                state: { x?: number; y?: number } | null;
+                markets?: Record<GoodId, { price: number; inventory: number }>;
+              };
+            });
+          } catch (error) {
+            // Fallback to simple distance
             distance = Math.abs(currentSystem - systemId);
+            continue;
           }
-          targetMarkets = targetData.markets || null;
-        } catch (error) {
-          // Fallback to simple distance
+        }
+        
+        // Calculate distance using cached or fetched data
+        if (targetData && targetData.state) {
+          const targetX = targetData.state.x ?? 0;
+          const targetY = targetData.state.y ?? 0;
+          distance = this.calculateDistance(currentCoords.x, currentCoords.y, targetX, targetY);
+        } else {
+          // Fallback to simple distance if state is null
           distance = Math.abs(currentSystem - systemId);
         }
+        targetMarkets = targetData?.markets || null;
+      } else if (snapshotFetchCount >= maxSnapshotFetches) {
+        // Hit snapshot limit - use simple distance for remaining systems
+        distance = Math.abs(currentSystem - systemId);
+        // Skip market-based scoring for these systems (use neutral score)
       } else {
         // Fallback to simple distance if coordinates not available
         distance = Math.abs(currentSystem - systemId);
@@ -2806,7 +3130,12 @@ export class Ship {
         let score = 0;
         let reason = "";
         
-        if (hasCargo && targetMarkets) {
+        // If we hit snapshot limit, use simplified scoring
+        if (snapshotFetchCount >= maxSnapshotFetches && !targetMarkets) {
+          // Use simple distance-based score (prefer closer systems)
+          score = 50 - (distance * 2); // Closer = higher score, max 50
+          reason = "estimated (snapshot limit reached)";
+        } else if (hasCargo && targetMarkets) {
           // Score based on potential profit from selling cargo
           let totalPotentialProfit = 0;
           let totalCargoValue = 0;
@@ -3141,8 +3470,6 @@ export class Ship {
 
     this.dirty = true;
     updateShipPresence(this.shipState);
-    await this.saveState();
-    await this.flushState();
 
     const shipSnapshot = JSON.parse(JSON.stringify(this.shipState, (key, value) => {
       if (value instanceof Map) {
@@ -3248,7 +3575,7 @@ export class Ship {
       console.error(`[Ship ${this.shipState.id}] Error getting origin prices:`, error);
     }
 
-    await this.saveState();
+    this.dirty = true; // Mark as dirty - will be flushed at end of tick
     updateShipPresence(this.shipState);
 
     return new Response(JSON.stringify({
@@ -3357,6 +3684,6 @@ export class Ship {
       console.error(`[Ship ${this.shipState.id}] Error recording removal:`, error);
     }
     
-    await this.saveState();
+    this.dirty = true; // Mark as dirty - will be flushed at end of tick
   }
 }

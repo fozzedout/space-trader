@@ -37,11 +37,12 @@ let balanceConfig: BalanceConfig = {
   inventoryDampingThreshold: 0.15,   // 15% buffer zones
   sigmoidSteepness: 3.0,             // Moderate sigmoid curve
   // Trade scoring weights for Smart Scoring
+  // NPCs prioritize TotalProfit over percentage margin
   tradeScoringWeights: {
-    profitMargin: 0.3,        // 30% weight on margin percentage
-    profitPerCargoSpace: 0.25, // 25% weight on efficiency
-    totalProfitPotential: 0.25, // 25% weight on volume potential
-    inventoryPressure: 0.2,    // 20% weight on market need
+    profitMargin: 0.0,         // DEPRECATED: No longer using percentage margin
+    profitPerCargoSpace: 0.2,  // 20% weight on efficiency (profit per cargo space)
+    totalProfitPotential: 0.7, // 70% weight on total profit (primary factor)
+    inventoryPressure: 0.1,    // 10% weight on market need (inventory pressure)
   },
 };
 

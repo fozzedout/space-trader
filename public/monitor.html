@@ -1500,32 +1500,63 @@
 
         function updateLocalMap(ships) {
             const now = Date.now();
-            const shipsToPlot = (ships || []).filter(ship => ship.positionX !== null && ship.positionY !== null);
+            // Filter ships that have position data or can calculate position from timing data
+            const shipsToPlot = (ships || []).filter(ship => {
+                // Include ships with position data (arriving ships)
+                if (ship.positionX !== null && ship.positionY !== null) return true;
+                // Include ships at station (will be at 0,0)
+                if (ship.phase === "at_station" || ship.phase === "resting" || ship.phase === "sleeping" || ship.phase === "departing") return true;
+                return false;
+            });
+            
             localMapState.ships = shipsToPlot.map(ship => {
-                const startX = ship.positionX || 0;
-                const startY = ship.positionY || 0;
-                let velocityX = 0;
-                let velocityY = 0;
-                if (ship.phase === "arriving") {
-                    const distance = Math.sqrt(startX * startX + startY * startY);
-                    if (distance > 0.01) {
-                        const unitX = -startX / distance;
-                        const unitY = -startY / distance;
-                        velocityX = unitX * LOCAL_MAX_SPEED_SU_S;
-                        velocityY = unitY * LOCAL_MAX_SPEED_SU_S;
+                let currentX = 0;
+                let currentY = 0;
+                
+                // Calculate position based on current time and timing data
+                // This allows smooth interpolation between server updates
+                if (ship.phase === "arriving" && ship.arrivalStartX !== null && ship.arrivalStartY !== null) {
+                    if (ship.arrivalStartTime !== null && ship.arrivalCompleteTime !== null) {
+                        const totalDuration = ship.arrivalCompleteTime - ship.arrivalStartTime;
+                        if (totalDuration > 0) {
+                            const elapsed = now - ship.arrivalStartTime;
+                            const progress = Math.min(1, Math.max(0, elapsed / totalDuration));
+                            // Ship moves linearly from arrivalStartX/Y toward (0, 0)
+                            currentX = ship.arrivalStartX * (1 - progress);
+                            currentY = ship.arrivalStartY * (1 - progress);
+                        } else {
+                            // Already arrived
+                            currentX = 0;
+                            currentY = 0;
+                        }
+                    } else if (ship.positionX !== null && ship.positionY !== null) {
+                        // Use server-provided position if timing data missing
+                        currentX = ship.positionX;
+                        currentY = ship.positionY;
                     }
+                } else if (ship.positionX !== null && ship.positionY !== null) {
+                    // Use server-provided position
+                    currentX = ship.positionX;
+                    currentY = ship.positionY;
                 }
+                // Ships at station/departing are at (0, 0) - already set above
+                
                 return {
                     id: ship.id,
                     name: ship.name,
                     phase: ship.phase,
                     isNPC: ship.isNPC,
-                    startX,
-                    startY,
-                    velocityX,
-                    velocityY,
-                    displayX: startX,
-                    displayY: startY
+                    // Store timing data for continuous position calculation
+                    arrivalStartX: ship.arrivalStartX,
+                    arrivalStartY: ship.arrivalStartY,
+                    arrivalStartTime: ship.arrivalStartTime,
+                    arrivalCompleteTime: ship.arrivalCompleteTime,
+                    serverTime: ship.serverTime || now,
+                    // Current calculated position
+                    startX: currentX,
+                    startY: currentY,
+                    displayX: currentX,
+                    displayY: currentY
                 };
             });
             localMapState.lastUpdateAt = now;
@@ -1590,23 +1621,43 @@
             svg.appendChild(station);
 
             localMapState.ships.forEach(ship => {
-                let predictedX = ship.startX + ship.velocityX * elapsed;
-                let predictedY = ship.startY + ship.velocityY * elapsed;
-                let distance = Math.sqrt(predictedX * predictedX + predictedY * predictedY);
+                // Recalculate position based on current time (allows smooth movement between server updates)
+                let currentX = ship.startX;
+                let currentY = ship.startY;
+                
+                if (ship.phase === "arriving" && ship.arrivalStartX !== null && ship.arrivalStartY !== null) {
+                    if (ship.arrivalStartTime !== null && ship.arrivalCompleteTime !== null) {
+                        const totalDuration = ship.arrivalCompleteTime - ship.arrivalStartTime;
+                        if (totalDuration > 0) {
+                            const elapsed = now - ship.arrivalStartTime;
+                            const progress = Math.min(1, Math.max(0, elapsed / totalDuration));
+                            // Ship moves linearly from arrivalStartX/Y toward (0, 0)
+                            currentX = ship.arrivalStartX * (1 - progress);
+                            currentY = ship.arrivalStartY * (1 - progress);
+                        } else {
+                            currentX = 0;
+                            currentY = 0;
+                        }
+                    }
+                }
+                
+                // Clamp to station if very close
+                let distance = Math.sqrt(currentX * currentX + currentY * currentY);
                 if (distance <= 0.2) {
-                    predictedX = 0;
-                    predictedY = 0;
+                    currentX = 0;
+                    currentY = 0;
                     distance = 0;
                 }
 
-                const angle = Math.atan2(predictedX, -predictedY);
+                // Only show ship when radar sweep touches it
+                const angle = Math.atan2(currentX, -currentY);
                 let delta = Math.abs(angle - sweepAngle);
                 if (delta > Math.PI) {
                     delta = Math.abs(delta - Math.PI * 2);
                 }
                 if (delta <= sweepWindow) {
-                    ship.displayX = predictedX;
-                    ship.displayY = predictedY;
+                    ship.displayX = currentX;
+                    ship.displayY = currentY;
                 }
 
                 const x = ship.displayX;
