@@ -37,6 +37,7 @@ import {
   getTransactionImpactMultiplier
 } from "./balance-config";
 import { logTrade, getTradeLogs } from "./trade-logging";
+import { DO_INTERNAL } from "./durable-object-helpers";
 import * as fs from "fs";
 import * as path from "path";
 
@@ -78,6 +79,16 @@ export class StarSystem {
     this.env = env;
   }
 
+  getCoordinates(): { x: number; y: number } | null {
+    if (!this.systemState) {
+      return null;
+    }
+    return {
+      x: this.systemState.x ?? 0,
+      y: this.systemState.y ?? 0,
+    };
+  }
+
   async fetch(request: Request | string): Promise<Response> {
     // Handle both Request objects and string URLs
     const requestObj = typeof request === "string" ? new Request(request) : request;
@@ -94,6 +105,8 @@ export class StarSystem {
         return this.handleGetState();
       } else if (path === "/snapshot" && requestObj.method === "GET") {
         return this.handleGetSnapshot();
+      } else if (path === "/reachable-systems" && requestObj.method === "GET") {
+        return this.handleGetReachableSystems();
       } else if (path === "/tick" && requestObj.method === "POST") {
         return this.handleTick();
       } else if (path === "/arrival" && requestObj.method === "POST") {
@@ -359,6 +372,114 @@ export class StarSystem {
       }
       return value;
     }), {
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
+  private async getOtherSystemCoords(otherSystemId: SystemId): Promise<{ x: number; y: number } | null> {
+    try {
+      const otherSystemStub = this.env.STAR_SYSTEM.idFromName(`system-${otherSystemId}`);
+      const otherSystemObj = this.env.STAR_SYSTEM.get(otherSystemStub);
+      
+      // Try to call getCoordinates directly (works in local mode)
+      let usedDirectCall = false;
+      try {
+        const systemAsStarSystem = otherSystemObj as StarSystem;
+        if (systemAsStarSystem.getCoordinates && typeof systemAsStarSystem.getCoordinates === 'function') {
+          const coords = systemAsStarSystem.getCoordinates();
+          if (coords) {
+            return coords;
+          }
+          usedDirectCall = true;
+        } else {
+          // Try prototype chain
+          const proto = Object.getPrototypeOf(otherSystemObj);
+          if (proto && proto.getCoordinates && typeof proto.getCoordinates === 'function') {
+            const coords = proto.getCoordinates.call(systemAsStarSystem);
+            if (coords) {
+              return coords;
+            }
+            usedDirectCall = true;
+          }
+        }
+      } catch (error) {
+        // Method doesn't exist or call failed - will fall back to fetch
+      }
+      
+      // Fallback to fetch if direct call wasn't used or returned null
+      const systemAsFetch = otherSystemObj as { fetch: (request: Request | string) => Promise<Response> };
+      const otherSnapshot = await systemAsFetch.fetch(DO_INTERNAL("/snapshot"));
+      const otherData = (await otherSnapshot.json()) as { state: { x?: number; y?: number } | null };
+      
+      if (!otherData.state) return null;
+      
+      return {
+        x: otherData.state.x ?? 0,
+        y: otherData.state.y ?? 0,
+      };
+    } catch (error) {
+      return null;
+    }
+  }
+
+  async getReachableSystems(): Promise<Array<{ id: SystemId; distance: number }>> {
+    if (!this.systemState) {
+      console.warn(`[StarSystem] getReachableSystems called but systemState is null`);
+      return [];
+    }
+
+    const MAX_TRAVEL_DISTANCE = 15; // Maximum distance ships can travel
+    const GALAXY_SIZE = 256; // Total number of systems
+    
+    const currentX = this.systemState.x ?? 0;
+    const currentY = this.systemState.y ?? 0;
+    const currentId = this.systemState.id;
+    
+    const reachableSystems: Array<{ id: SystemId; distance: number }> = [];
+    let systemsChecked = 0;
+    let systemsFailed = 0;
+    let systemsUninitialized = 0;
+    
+    // Check all systems to find those within MAX_TRAVEL_DISTANCE
+    for (let i = 0; i < GALAXY_SIZE; i++) {
+      const otherSystemId = i as SystemId;
+      if (otherSystemId === currentId) continue;
+      
+      systemsChecked++;
+      const otherCoords = await this.getOtherSystemCoords(otherSystemId);
+      if (!otherCoords) {
+        systemsFailed++;
+        continue; // Skip systems that can't be accessed or aren't initialized
+      }
+      
+      // Calculate 2D Euclidean distance
+      const dx = currentX - otherCoords.x;
+      const dy = currentY - otherCoords.y;
+      const distance = Math.sqrt(dx * dx + dy * dy);
+      
+      if (distance <= MAX_TRAVEL_DISTANCE) {
+        reachableSystems.push({ id: otherSystemId, distance });
+      }
+    }
+    
+    // Sort by distance (closest first)
+    reachableSystems.sort((a, b) => a.distance - b.distance);
+    
+    // Log warning if no reachable systems found (this should not happen after validation)
+    if (reachableSystems.length === 0 && systemsChecked > 0) {
+      console.warn(
+        `[StarSystem ${currentId}] getReachableSystems: No systems found within ${MAX_TRAVEL_DISTANCE} LY. ` +
+        `Checked ${systemsChecked} systems, ${systemsFailed} failed/uninitialized. ` +
+        `Current coords: (${currentX.toFixed(2)}, ${currentY.toFixed(2)})`
+      );
+    }
+    
+    return reachableSystems;
+  }
+
+  private async handleGetReachableSystems(): Promise<Response> {
+    const reachableSystems = await this.getReachableSystems();
+    return new Response(JSON.stringify({ systems: reachableSystems }), {
       headers: { "Content-Type": "application/json" },
     });
   }

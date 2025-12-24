@@ -1631,7 +1631,7 @@ async function validateAndAdjustGalaxy(
     validSystems.splice(GALAXY_SIZE);
   }
   
-  // Final sweep: Check average distance to neighbors within 15 LY and relocate systems that are too close
+  // Final sweep: Check average distance and relocate systems that are too close
   const finalCoordsMap = new Map<SystemId, { x: number; y: number }>();
   for (const systemId of validSystems) {
     const coords = await getSystemCoords(systemId);
@@ -1640,38 +1640,42 @@ async function validateAndAdjustGalaxy(
     }
   }
   
-  // Calculate average distance to neighbors within 15 LY for each system, then overall average
-  const NEIGHBOR_RANGE_LY = 15.0;
-  const systemAverageDistances: Array<{ id: SystemId; coords: { x: number; y: number }; averageDistance: number; neighborCount: number }> = [];
-  
-  for (const [systemId, coords] of finalCoordsMap.entries()) {
-    let totalDistance = 0;
-    let neighborCount = 0;
-    
-    for (const [otherId, otherCoords] of finalCoordsMap.entries()) {
-      if (systemId === otherId) continue;
-      const distance = calculateDistance(coords.x, coords.y, otherCoords.x, otherCoords.y);
-      if (distance <= NEIGHBOR_RANGE_LY) {
+  // Calculate average distance between all systems
+  let totalDistance = 0;
+  let pairCount = 0;
+  for (const [id1, coords1] of finalCoordsMap.entries()) {
+    for (const [id2, coords2] of finalCoordsMap.entries()) {
+      if (id1 < id2) {
+        const distance = calculateDistance(coords1.x, coords1.y, coords2.x, coords2.y);
         totalDistance += distance;
-        neighborCount++;
+        pairCount++;
       }
     }
-    
-    const averageDistance = neighborCount > 0 ? totalDistance / neighborCount : 0;
-    systemAverageDistances.push({ id: systemId, coords, averageDistance, neighborCount });
   }
   
-  // Calculate overall average of per-system averages
-  const totalAverageDistance = systemAverageDistances.reduce((sum, s) => sum + s.averageDistance, 0);
-  const averageDistance = systemAverageDistances.length > 0 ? totalAverageDistance / systemAverageDistances.length : 0;
-  console.log(`[Galaxy Validation] Average distance to neighbors within ${NEIGHBOR_RANGE_LY} LY: ${averageDistance.toFixed(2)} LY`);
+  const averageDistance = pairCount > 0 ? totalDistance / pairCount : 0;
+  console.log(`[Galaxy Validation] Average distance between systems: ${averageDistance.toFixed(2)} LY`);
   
   if (averageDistance < 5.0) {
     console.log(`[Galaxy Validation] Average distance ${averageDistance.toFixed(2)} LY is below 5 LY threshold, relocating systems with closest neighbors`);
     
-    // Find systems with lowest average distance to neighbors (closest neighbors)
-    systemAverageDistances.sort((a, b) => a.averageDistance - b.averageDistance);
-    const systemsToRelocate = systemAverageDistances.slice(0, Math.min(20, Math.floor(validSystems.length * 0.1)));
+    // Find systems with closest neighbors
+    const systemNearestDistances: Array<{ id: SystemId; coords: { x: number; y: number }; nearestDistance: number }> = [];
+    for (const [systemId, coords] of finalCoordsMap.entries()) {
+      let nearestDistance = Infinity;
+      for (const [otherId, otherCoords] of finalCoordsMap.entries()) {
+        if (systemId === otherId) continue;
+        const distance = calculateDistance(coords.x, coords.y, otherCoords.x, otherCoords.y);
+        if (distance < nearestDistance) {
+          nearestDistance = distance;
+        }
+      }
+      systemNearestDistances.push({ id: systemId, coords, nearestDistance });
+    }
+    
+    // Sort by nearest distance (closest first) and take the ones that need relocation
+    systemNearestDistances.sort((a, b) => a.nearestDistance - b.nearestDistance);
+    const systemsToRelocate = systemNearestDistances.slice(0, Math.min(20, Math.floor(validSystems.length * 0.1)));
     
     const relocateRng = rng.derive(`relocate-average`);
     let systemsRelocated = 0;
@@ -1729,28 +1733,20 @@ async function validateAndAdjustGalaxy(
     if (systemsRelocated > 0) {
       console.log(`[Galaxy Validation] Relocated ${systemsRelocated} systems to improve average distance`);
       
-      // Recalculate average distance to neighbors within 15 LY
-      const newSystemAverageDistances: Array<{ averageDistance: number }> = [];
-      for (const [systemId, coords] of finalCoordsMap.entries()) {
-        let totalDistance = 0;
-        let neighborCount = 0;
-        
-        for (const [otherId, otherCoords] of finalCoordsMap.entries()) {
-          if (systemId === otherId) continue;
-          const distance = calculateDistance(coords.x, coords.y, otherCoords.x, otherCoords.y);
-          if (distance <= NEIGHBOR_RANGE_LY) {
+      // Recalculate average distance
+      totalDistance = 0;
+      pairCount = 0;
+      for (const [id1, coords1] of finalCoordsMap.entries()) {
+        for (const [id2, coords2] of finalCoordsMap.entries()) {
+          if (id1 < id2) {
+            const distance = calculateDistance(coords1.x, coords1.y, coords2.x, coords2.y);
             totalDistance += distance;
-            neighborCount++;
+            pairCount++;
           }
         }
-        
-        const averageDistance = neighborCount > 0 ? totalDistance / neighborCount : 0;
-        newSystemAverageDistances.push({ averageDistance });
       }
-      
-      const newTotalAverageDistance = newSystemAverageDistances.reduce((sum, s) => sum + s.averageDistance, 0);
-      const newAverageDistance = newSystemAverageDistances.length > 0 ? newTotalAverageDistance / newSystemAverageDistances.length : 0;
-      console.log(`[Galaxy Validation] New average distance to neighbors within ${NEIGHBOR_RANGE_LY} LY: ${newAverageDistance.toFixed(2)} LY`);
+      const newAverageDistance = pairCount > 0 ? totalDistance / pairCount : 0;
+      console.log(`[Galaxy Validation] New average distance: ${newAverageDistance.toFixed(2)} LY`);
     }
   }
   

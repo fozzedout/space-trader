@@ -279,6 +279,23 @@ export class Ship {
       };
       // Restore purchasePrices Map from shipState
       // purchasePrices is now accessed via getter - no assignment needed
+      
+      // Safety check: If ship is in an invalid state (no current system) but has cargo,
+      // clear the cargo to prevent issues. This can happen if state is loaded before
+      // proper initialization or if initialization failed.
+      if (this.shipState.isNPC && 
+          (this.shipState.currentSystem === null || this.shipState.currentSystem === undefined) &&
+          this.shipState.cargo.size > 0 &&
+          Array.from(this.shipState.cargo.values()).some(qty => qty > 0)) {
+        console.warn(
+          `[Ship ${this.shipState.id}] Loaded state with cargo but invalid currentSystem, clearing cargo. ` +
+          `Cargo: [${Array.from(this.shipState.cargo.entries()).map(([g, q]) => `${g}:${q}`).join(", ")}]`
+        );
+        this.shipState.cargo.clear();
+        this.purchasePrices.clear();
+        this.dirty = true;
+      }
+      
       this.updatePosition(Date.now());
     }
   }
@@ -1765,7 +1782,16 @@ export class Ship {
               actionTaken = sold;
               if (!sold) {
                 // Still can't sell - clear cargo as last resort
-                console.warn(`[Ship ${this.shipState.id}] Travel failed and can't sell cargo, clearing cargo`);
+                const cargoSummary = Array.from(this.shipState.cargo.entries())
+                  .filter(([_, qty]) => qty > 0)
+                  .map(([g, q]) => `${g}:${q}`)
+                  .join(", ") || "none";
+                console.warn(
+                  `[Ship ${this.shipState.id}] Travel failed and can't sell cargo, clearing cargo. ` +
+                  `Cargo: [${cargoSummary}], credits: ${this.shipState.credits.toFixed(2)}, ` +
+                  `current system: ${this.shipState.currentSystem}, phase: ${this.shipState.phase}, ` +
+                  `fuel: ${this.shipState.fuelLy.toFixed(2)}/${this.shipState.fuelCapacityLy.toFixed(2)} LY`
+                );
                 this.shipState.cargo.clear();
                 this.purchasePrices.clear();
                 this.shipState.chosenDestinationSystemId = null;
@@ -2268,8 +2294,48 @@ export class Ship {
     }
 
     const scoredCandidates: ScoredCandidate[] = [];
-    const checkRange = 20;
-    const systemIdForCheck = currentSystemId; // Use local variable to avoid shadowing
+    
+    // Get list of reachable systems from current system
+    let reachableSystems: Array<{ id: SystemId; distance: number }> = [];
+    if (currentSystemId !== null) {
+      try {
+        const currentSystemStub = this.env.STAR_SYSTEM.idFromName(`system-${currentSystemId}`);
+        const currentSystemObj = this.env.STAR_SYSTEM.get(currentSystemStub);
+        
+        // Try to call getReachableSystems directly
+        let usedDirectCall = false;
+        try {
+          const systemAsStarSystem = currentSystemObj as StarSystem;
+          if (systemAsStarSystem.getReachableSystems && typeof systemAsStarSystem.getReachableSystems === 'function') {
+            reachableSystems = await systemAsStarSystem.getReachableSystems();
+            usedDirectCall = true;
+          } else {
+            // Try prototype chain
+            const proto = Object.getPrototypeOf(currentSystemObj);
+            if (proto && proto.getReachableSystems && typeof proto.getReachableSystems === 'function') {
+              reachableSystems = await proto.getReachableSystems.call(systemAsStarSystem);
+              usedDirectCall = true;
+            }
+          }
+        } catch (error) {
+          // Method doesn't exist or call failed - will fall back to fetch
+        }
+        
+        // Fallback to fetch if direct call wasn't used
+        if (!usedDirectCall) {
+          const systemAsFetch = currentSystemObj as { fetch: (request: Request | string) => Promise<Response> };
+          const reachableResponse = await systemAsFetch.fetch(DO_INTERNAL("/reachable-systems"));
+          if (reachableResponse.ok) {
+            const reachableData = (await reachableResponse.json()) as { systems: Array<{ id: SystemId; distance: number }> };
+            reachableSystems = reachableData.systems || [];
+          }
+        }
+      } catch (error) {
+        if (logDecisions) {
+          logDecision(this.shipState.id, `  Error getting reachable systems: ${error}`);
+        }
+      }
+    }
 
     for (const candidate of candidates) {
       const effectiveBuyPrice = candidate.price * (1 + SALES_TAX_RATE);
@@ -2287,19 +2353,19 @@ export class Ship {
       let bestProfitMargin = -Infinity;
       let bestNetSellPrice = 0;
 
-      try {
-        for (let i = Math.max(0, systemIdForCheck - checkRange); i <= Math.min(255, systemIdForCheck + checkRange); i++) {
-          if (i === systemIdForCheck) continue;
+      // Check each reachable system for profitable sell opportunities
+      for (const reachableSystem of reachableSystems) {
+        const targetSystemId = reachableSystem.id;
+        
+        try {
+          const systemStub = this.env.STAR_SYSTEM.idFromName(`system-${targetSystemId}`);
+          const systemObj = this.env.STAR_SYSTEM.get(systemStub) as { fetch: (request: Request | string) => Promise<Response> };
+          const snapshot = await systemObj.fetch(DO_INTERNAL("/snapshot"));
+          const data = (await snapshot.json()) as { 
+            markets?: Record<GoodId, { price: number; production?: number; consumption?: number; inventory?: number }> 
+          };
 
-          try {
-            const systemStub = this.env.STAR_SYSTEM.idFromName(`system-${i}`);
-            const systemObj = this.env.STAR_SYSTEM.get(systemStub) as { fetch: (request: Request | string) => Promise<Response> };
-            const snapshot = await systemObj.fetch(DO_INTERNAL("/snapshot"));
-            const data = (await snapshot.json()) as { 
-              markets?: Record<GoodId, { price: number; production?: number; consumption?: number; inventory?: number }> 
-            };
-
-            if (data.markets && data.markets[candidate.goodId]) {
+          if (data.markets && data.markets[candidate.goodId]) {
               const targetPrice = data.markets[candidate.goodId].price;
               const netSellPrice = targetPrice;
               const profitMargin = (netSellPrice - purchasePrice) / purchasePrice;
@@ -2326,7 +2392,7 @@ export class Ship {
 
                 if (score > bestScore) {
                   bestScore = score;
-                  bestDestination = i;
+                  bestDestination = targetSystemId;
                   bestProfitMargin = profitMargin;
                   bestNetSellPrice = netSellPrice;
                 }
@@ -2336,12 +2402,6 @@ export class Ship {
             continue;
           }
         }
-      } catch (error) {
-        if (logDecisions) {
-          logDecision(this.shipState.id, `  Could not verify destinations for ${candidate.goodId}, skipping`);
-        }
-        continue;
-      }
 
       // Add to scored candidates if profitable destination found
       if (bestDestination !== null && bestScore > -Infinity) {
@@ -2995,7 +3055,8 @@ export class Ship {
 
     const currentSystem = this.shipState.currentSystem;
     
-    let destinationSystem: SystemId;
+    let destinationSystem: SystemId | null = null;
+    let finalDistance: number | null = null;
 
     const maxAdditionalFuel = Math.min(
       this.shipState.fuelCapacityLy - this.shipState.fuelLy,
@@ -3024,18 +3085,72 @@ export class Ship {
     const hasCargo = this.shipState.cargo.size > 0 && 
                      Array.from(this.shipState.cargo.values()).some(qty => qty > 0);
     
-    const nearbySystems: Array<{ id: SystemId; distance: number; score: number; reason?: string }> = [];
-    let systemsInRangeButUnreachable = 0; // Track systems within MAX_TRAVEL_DISTANCE but beyond maxReachableDistance
-    // Limit search to systems within a reasonable range to avoid fetching all 256 systems
-    const searchRange = 50; // Check systems within ±50 of current system
-    const startSystem = Math.max(0, currentSystem - searchRange);
-    const endSystem = Math.min(255, currentSystem + searchRange);
-    
-    if (logDecisions) {
-      logDecision(this.shipState.id, `  Searching for destinations in range ${startSystem}-${endSystem} (hasCargo=${hasCargo}, maxReachable=${maxReachableDistance.toFixed(2)} LY)`);
+    // If ship has cargo and a stored destination (locked in before buying), use it
+    if (hasCargo && this.shipState.chosenDestinationSystemId !== null && this.shipState.chosenDestinationSystemId !== undefined) {
+      const storedDestination = this.shipState.chosenDestinationSystemId;
+      if (logDecisions) {
+        logDecision(this.shipState.id, `  Using stored destination: system ${storedDestination} (locked in before purchase)`);
+      }
+      
+      // Verify the stored destination is reachable
+      try {
+        const targetSystemStub = this.env.STAR_SYSTEM.idFromName(`system-${storedDestination}`);
+        const targetSystemObj = this.env.STAR_SYSTEM.get(targetSystemStub) as { fetch: (request: Request | string) => Promise<Response> };
+        const targetSnapshot = await targetSystemObj.fetch(DO_INTERNAL("/snapshot"));
+        const targetData = (await targetSnapshot.json()) as { 
+          state: { x?: number; y?: number } | null;
+        };
+        
+        let destinationDistance: number;
+        if (currentCoords && targetData.state) {
+          const targetX = targetData.state.x ?? 0;
+          const targetY = targetData.state.y ?? 0;
+          destinationDistance = this.calculateDistance(currentCoords.x, currentCoords.y, targetX, targetY);
+        } else {
+          // Fallback to simple distance
+          destinationDistance = Math.abs(currentSystem - storedDestination);
+        }
+        
+        // Check if destination is reachable
+        if (destinationDistance <= MAX_TRAVEL_DISTANCE && destinationDistance <= maxReachableDistance + 0.001) {
+          destinationSystem = storedDestination;
+          finalDistance = destinationDistance;
+          
+          if (logDecisions) {
+            logDecision(this.shipState.id, `  Using stored destination: system ${storedDestination} (distance: ${finalDistance.toFixed(2)} LY)`);
+          }
+        } else {
+          // Stored destination is not reachable - clear it and recalculate
+          const reason = destinationDistance > MAX_TRAVEL_DISTANCE 
+            ? `beyond max travel distance (${destinationDistance.toFixed(2)} > ${MAX_TRAVEL_DISTANCE})`
+            : `beyond reachable distance (${destinationDistance.toFixed(2)} > ${maxReachableDistance.toFixed(2)}, fuel: ${this.shipState.fuelLy.toFixed(2)}/${this.shipState.fuelCapacityLy.toFixed(2)}, credits: ${this.shipState.credits.toFixed(2)})`;
+          console.warn(
+            `[Ship ${this.shipState.id}] Stored destination ${storedDestination} is not reachable: ${reason}. ` +
+            `Clearing stored destination and recalculating.`
+          );
+          if (logDecisions) {
+            logDecision(this.shipState.id, `  Stored destination ${storedDestination} is not reachable (distance: ${destinationDistance.toFixed(2)} LY, max: ${maxReachableDistance.toFixed(2)} LY), recalculating`);
+          }
+          this.shipState.chosenDestinationSystemId = null;
+          this.shipState.expectedMarginAtChoiceTime = null;
+          // Fall through to normal destination selection
+        }
+      } catch (error) {
+        // Error fetching destination - clear it and recalculate
+        if (logDecisions) {
+          logDecision(this.shipState.id, `  Error verifying stored destination ${storedDestination}, recalculating`);
+        }
+        this.shipState.chosenDestinationSystemId = null;
+        this.shipState.expectedMarginAtChoiceTime = null;
+        // Fall through to normal destination selection
+      }
     }
     
-    // Get current system markets for comparison
+    // Variables for destination search (used even if we have stored destination, for error reporting)
+    let systemsInRangeButUnreachable = 0; // Track systems within MAX_TRAVEL_DISTANCE but beyond maxReachableDistance
+    let totalReachableSystems = 0; // Track total systems within MAX_TRAVEL_DISTANCE (for error reporting)
+    
+    // Get current system markets for comparison (needed for scoring)
     let currentMarkets: Record<GoodId, { price: number; inventory: number }> | null = null;
     try {
       currentMarkets = await profiler.timeAsync(`ship-${this.shipState.id}-getCurrentMarkets`, async () => {
@@ -3047,161 +3162,155 @@ export class Ship {
       // Ignore - will use fallback
     }
     
-    let snapshotFetchCount = 0;
-    const maxSnapshotFetches = 20; // Limit snapshot fetches to prevent excessive I/O (was up to 100)
-    const minGoodCandidates = 3; // Stop early if we find this many good candidates
-    
-    for (let i = startSystem; i <= endSystem; i++) {
-      const systemId = i as SystemId;
-      if (systemId === currentSystem) continue;
+    // If we don't have a destination yet, get list of reachable systems from station
+    if (destinationSystem === null) {
+      const nearbySystems: Array<{ id: SystemId; distance: number; score: number; reason?: string }> = [];
       
-      // Early exit: if we have enough good candidates and hit snapshot limit, stop searching
-      if (snapshotFetchCount >= maxSnapshotFetches) {
-        const goodCandidates = nearbySystems.filter(s => s.score > 10).length;
-        if (goodCandidates >= minGoodCandidates) {
-          if (logDecisions) {
-            logDecision(this.shipState.id, `  Early exit: found ${goodCandidates} good candidates after ${snapshotFetchCount} snapshot fetches`);
+      // Get list of reachable systems from current system
+      let reachableSystems: Array<{ id: SystemId; distance: number }> = [];
+      try {
+        // Try to call getReachableSystems directly
+        let usedDirectCall = false;
+        try {
+          const systemAsStarSystem = currentSystemObj as StarSystem;
+          if (systemAsStarSystem.getReachableSystems && typeof systemAsStarSystem.getReachableSystems === 'function') {
+            reachableSystems = await systemAsStarSystem.getReachableSystems();
+            totalReachableSystems = reachableSystems.length;
+            usedDirectCall = true;
+          } else {
+            // Try prototype chain
+            const proto = Object.getPrototypeOf(currentSystemObj);
+            if (proto && proto.getReachableSystems && typeof proto.getReachableSystems === 'function') {
+              reachableSystems = await proto.getReachableSystems.call(systemAsStarSystem);
+              totalReachableSystems = reachableSystems.length;
+              usedDirectCall = true;
+            }
           }
-          break;
+        } catch (error) {
+          // Method doesn't exist or call failed - will fall back to fetch
         }
-        // Continue with simple distance for remaining systems if we don't have enough candidates
+        
+        // Fallback to fetch if direct call wasn't used
+        if (!usedDirectCall) {
+          const systemAsFetch = currentSystemObj as { fetch: (request: Request | string) => Promise<Response> };
+          const reachableResponse = await systemAsFetch.fetch(DO_INTERNAL("/reachable-systems"));
+          if (reachableResponse.ok) {
+            const reachableData = (await reachableResponse.json()) as { systems: Array<{ id: SystemId; distance: number }> };
+            reachableSystems = reachableData.systems || [];
+            totalReachableSystems = reachableSystems.length;
+          }
+        }
+      } catch (error) {
+        if (logDecisions) {
+          logDecision(this.shipState.id, `  Error getting reachable systems: ${error}`);
+        }
       }
       
-      let distance: number;
-      let targetMarkets: Record<GoodId, { price: number; inventory: number }> | null = null;
+      if (logDecisions) {
+        logDecision(this.shipState.id, `  Found ${reachableSystems.length} reachable systems (hasCargo=${hasCargo}, maxReachable=${maxReachableDistance.toFixed(2)} LY)`);
+      }
       
-      if (currentCoords && snapshotFetchCount < maxSnapshotFetches) {
-        // Try to get cached snapshot first (per-tick cache to avoid duplicate fetches)
-        let targetData: { 
-          state: { x?: number; y?: number } | null;
-          markets?: Record<GoodId, { price: number; inventory: number }>;
-        } | null = null;
+      // Check each reachable system
+      for (const reachableSystem of reachableSystems) {
+        const systemId = reachableSystem.id;
+        const distance = reachableSystem.distance;
         
-        // Check cache first (cache is per-tick and cleared between ticks)
-        const cachedSnapshot = getCachedSnapshot(systemId);
-        if (cachedSnapshot) {
-          targetData = {
-            state: cachedSnapshot.state,
-            markets: cachedSnapshot.markets as Record<GoodId, { price: number; inventory: number }>,
-          };
-        } else {
-          // Fallback to fetch if not in cache
+        // Track systems that are in range but unreachable (beyond maxReachableDistance)
+        if (distance <= MAX_TRAVEL_DISTANCE && distance > maxReachableDistance + 0.001) {
+          systemsInRangeButUnreachable++;
+        }
+        
+        // Only consider systems within reachable distance
+        if (distance <= maxReachableDistance + 0.001) {
+          // Get market data for this system
+          let targetMarkets: Record<GoodId, { price: number; inventory: number }> | null = null;
           try {
-            snapshotFetchCount++;
-            const targetSystemStub = this.env.STAR_SYSTEM.idFromName(`system-${systemId}`);
-            const targetSystemObj = this.env.STAR_SYSTEM.get(targetSystemStub) as { fetch: (request: Request | string) => Promise<Response> };
-            targetData = await profiler.timeAsync(`ship-${this.shipState.id}-getTargetSnapshot-${systemId}`, async () => {
+            // Try to get cached snapshot first
+            const cachedSnapshot = getCachedSnapshot(systemId);
+            if (cachedSnapshot) {
+              targetMarkets = cachedSnapshot.markets as Record<GoodId, { price: number; inventory: number }>;
+            } else {
+              // Fetch snapshot if not in cache
+              const targetSystemStub = this.env.STAR_SYSTEM.idFromName(`system-${systemId}`);
+              const targetSystemObj = this.env.STAR_SYSTEM.get(targetSystemStub) as { fetch: (request: Request | string) => Promise<Response> };
               const targetSnapshot = await targetSystemObj.fetch(DO_INTERNAL("/snapshot"));
-              return (await targetSnapshot.json()) as { 
-                state: { x?: number; y?: number } | null;
+              const targetData = (await targetSnapshot.json()) as { 
                 markets?: Record<GoodId, { price: number; inventory: number }>;
               };
-            });
+              targetMarkets = targetData.markets || null;
+            }
           } catch (error) {
-            // Fallback to simple distance
-            distance = Math.abs(currentSystem - systemId);
+            // Skip this system if we can't get market data
             continue;
           }
-        }
-        
-        // Calculate distance using cached or fetched data
-        if (targetData && targetData.state) {
-          const targetX = targetData.state.x ?? 0;
-          const targetY = targetData.state.y ?? 0;
-          distance = this.calculateDistance(currentCoords.x, currentCoords.y, targetX, targetY);
-        } else {
-          // Fallback to simple distance if state is null
-          distance = Math.abs(currentSystem - systemId);
-        }
-        targetMarkets = targetData?.markets || null;
-      } else if (snapshotFetchCount >= maxSnapshotFetches) {
-        // Hit snapshot limit - use simple distance for remaining systems
-        distance = Math.abs(currentSystem - systemId);
-        // Skip market-based scoring for these systems (use neutral score)
-      } else {
-        // Fallback to simple distance if coordinates not available
-        distance = Math.abs(currentSystem - systemId);
-      }
-      
-      // Track systems that are in range but unreachable
-      if (distance <= MAX_TRAVEL_DISTANCE && distance > maxReachableDistance + 0.001) {
-        systemsInRangeButUnreachable++;
-      }
-      
-      if (distance <= MAX_TRAVEL_DISTANCE && distance <= maxReachableDistance + 0.001) {
-        let score = 0;
-        let reason = "";
-        
-        // If we hit snapshot limit, use simplified scoring
-        if (snapshotFetchCount >= maxSnapshotFetches && !targetMarkets) {
-          // Use simple distance-based score (prefer closer systems)
-          score = 50 - (distance * 2); // Closer = higher score, max 50
-          reason = "estimated (snapshot limit reached)";
-        } else if (hasCargo && targetMarkets) {
-          // Score based on potential profit from selling cargo
-          let totalPotentialProfit = 0;
-          let totalCargoValue = 0;
           
-          for (const [goodId, quantity] of this.shipState.cargo.entries()) {
-            if (quantity <= 0) continue;
-            
-            const purchasePrice = this.purchasePrices.get(goodId);
-            const targetPrice = targetMarkets[goodId]?.price;
-            
-            if (purchasePrice && targetPrice) {
-              // Fix: Use net sell price (post-tax) for profit calculation
-              const netSellPrice = targetPrice; // No tax on sales
-              const profitPerUnit = netSellPrice - purchasePrice;
-              const profit = profitPerUnit * quantity;
-              totalPotentialProfit += profit;
-              totalCargoValue += purchasePrice * quantity;
-            }
-          }
+          let score = 0;
+          let reason = "";
           
-          if (totalCargoValue > 0) {
-            const profitMargin = (totalPotentialProfit / totalCargoValue) * 100;
-            score = profitMargin; // Use profit margin as score
-            reason = `profit: ${profitMargin.toFixed(1)}%`;
-          } else {
-            score = -100; // Penalize if we can't calculate profit
-          }
-        } else if (!hasCargo && targetMarkets && currentMarkets) {
-          // Fix: Score based on buying opportunities accounting for tax
-          // Compare effective buy prices (with tax) between systems
-          let bestOpportunity = 0;
-          
-          for (const goodId of Object.keys(targetMarkets) as GoodId[]) {
-            const targetPrice = targetMarkets[goodId]?.price;
-            const currentPrice = currentMarkets[goodId]?.price;
+          if (hasCargo && targetMarkets) {
+            // Score based on potential profit from selling cargo
+            let totalPotentialProfit = 0;
+            let totalCargoValue = 0;
             
-            if (targetPrice && currentPrice && targetPrice > 0) {
-              // Compare effective buy prices (price + tax)
-              const targetEffectivePrice = targetPrice * (1 + SALES_TAX_RATE);
-              const currentEffectivePrice = currentPrice * (1 + SALES_TAX_RATE);
-              // Prefer systems where effective buy price is cheaper
-              const priceRatio = currentEffectivePrice / targetEffectivePrice;
-              if (priceRatio > 1.1) { // At least 10% cheaper after tax
-                bestOpportunity = Math.max(bestOpportunity, priceRatio - 1);
+            for (const [goodId, quantity] of this.shipState.cargo.entries()) {
+              if (quantity <= 0) continue;
+              
+              const purchasePrice = this.purchasePrices.get(goodId);
+              const targetPrice = targetMarkets[goodId]?.price;
+              
+              if (purchasePrice && targetPrice) {
+                // Fix: Use net sell price (post-tax) for profit calculation
+                const netSellPrice = targetPrice; // No tax on sales
+                const profitPerUnit = netSellPrice - purchasePrice;
+                const profit = profitPerUnit * quantity;
+                totalPotentialProfit += profit;
+                totalCargoValue += purchasePrice * quantity;
               }
             }
+            
+            if (totalCargoValue > 0) {
+              const profitMargin = (totalPotentialProfit / totalCargoValue) * 100;
+              score = profitMargin; // Use profit margin as score
+              reason = `profit: ${profitMargin.toFixed(1)}%`;
+            } else {
+              score = -100; // Penalize if we can't calculate profit
+            }
+          } else if (!hasCargo && targetMarkets && currentMarkets) {
+            // Fix: Score based on buying opportunities accounting for tax
+            // Compare effective buy prices (with tax) between systems
+            let bestOpportunity = 0;
+            
+            for (const goodId of Object.keys(targetMarkets) as GoodId[]) {
+              const targetPrice = targetMarkets[goodId]?.price;
+              const currentPrice = currentMarkets[goodId]?.price;
+              
+              if (targetPrice && currentPrice && targetPrice > 0) {
+                // Compare effective buy prices (price + tax)
+                const targetEffectivePrice = targetPrice * (1 + SALES_TAX_RATE);
+                const currentEffectivePrice = currentPrice * (1 + SALES_TAX_RATE);
+                // Prefer systems where effective buy price is cheaper
+                const priceRatio = currentEffectivePrice / targetEffectivePrice;
+                if (priceRatio > 1.1) { // At least 10% cheaper after tax
+                  bestOpportunity = Math.max(bestOpportunity, priceRatio - 1);
+                }
+              }
+            }
+            
+            score = bestOpportunity * 100; // Convert to percentage score
+            reason = `buy opportunity: ${(bestOpportunity * 100).toFixed(1)}%`;
+          } else {
+            // No market data - neutral score
+            score = 0;
+            reason = "no market data";
           }
           
-          score = bestOpportunity * 100; // Convert to percentage score
-          reason = `buy opportunity: ${(bestOpportunity * 100).toFixed(1)}%`;
-        } else {
-          // No market data - neutral score
-          score = 0;
-          reason = "no market data";
+          // Prefer closer systems (reduce score by distance)
+          score -= distance * 0.5;
+          
+          nearbySystems.push({ id: systemId, distance, score, reason });
         }
-        
-        // Prefer closer systems (reduce score by distance)
-        score -= distance * 0.5;
-        
-        nearbySystems.push({ id: systemId, distance, score, reason });
       }
-    }
     
-    let finalDistance: number;
     if (nearbySystems.length > 0) {
       // Sort by score (highest first)
       nearbySystems.sort((a, b) => b.score - a.score);
@@ -3261,7 +3370,8 @@ export class Ship {
       }
       
       // Store planned destination and expected margin if traveling with cargo
-      if (hasCargo && selected.reason?.startsWith("profit:")) {
+      // Only store if we don't already have one (from tryBuyGoods)
+      if (hasCargo && this.shipState.chosenDestinationSystemId === null && selected.reason?.startsWith("profit:")) {
         // Extract expected margin from reason string (e.g., "profit: 51.7%")
         const marginMatch = selected.reason.match(/profit:\s*([\d.]+)%/);
         if (marginMatch) {
@@ -3276,25 +3386,67 @@ export class Ship {
     } else {
       // Always log the specific reason (even if logDecisions is false) so parser can categorize failures
       // Determine specific reason: check if it's out of range or insufficient credits for fuel
+      const cargoSummary = hasCargo 
+        ? Array.from(this.shipState.cargo.entries()).filter(([_, qty]) => qty > 0).map(([g, q]) => `${g}:${q}`).join(", ")
+        : "none";
+      
       if (systemsInRangeButUnreachable > 0) {
         // Systems exist within MAX_TRAVEL_DISTANCE but are beyond maxReachableDistance
         logDecision(this.shipState.id, `RESULT: Travel failed - REASON: insufficient credits for fuel purchase`);
+        console.warn(
+          `[Ship ${this.shipState.id}] Travel failed: ${systemsInRangeButUnreachable} systems in range but unreachable. ` +
+          `Fuel: ${this.shipState.fuelLy.toFixed(2)}/${this.shipState.fuelCapacityLy.toFixed(2)} LY, ` +
+          `Credits: ${this.shipState.credits.toFixed(2)}, ` +
+          `Max reachable: ${maxReachableDistance.toFixed(2)} LY, ` +
+          `Cargo: [${cargoSummary}], ` +
+          `Current system: ${currentSystem}`
+        );
       } else {
         // No systems found within MAX_TRAVEL_DISTANCE - out of range
         logDecision(this.shipState.id, `RESULT: Travel failed - REASON: out of range`);
+        
+        console.warn(
+          `[Ship ${this.shipState.id}] Travel failed: No reachable destinations found. ` +
+          `Fuel: ${this.shipState.fuelLy.toFixed(2)}/${this.shipState.fuelCapacityLy.toFixed(2)} LY, ` +
+          `Credits: ${this.shipState.credits.toFixed(2)}, ` +
+          `Max reachable: ${maxReachableDistance.toFixed(2)} LY, ` +
+          `Total systems within ${MAX_TRAVEL_DISTANCE} LY: ${totalReachableSystems}, ` +
+          `Systems in range but unreachable: ${systemsInRangeButUnreachable}, ` +
+          `Cargo: [${cargoSummary}], ` +
+          `Current system: ${currentSystem}, ` +
+          `Stored destination: ${this.shipState.chosenDestinationSystemId ?? "none"}`
+        );
+        
+        // CRITICAL: If no destinations found, the galaxy is broken
+        // This means the system has no neighbors within 15 LY, which violates galaxy validation
+        if (totalReachableSystems === 0) {
+          const errorMsg = `[Ship ${this.shipState.id}] CRITICAL: No systems found within ${MAX_TRAVEL_DISTANCE} LY from system ${currentSystem}. ` +
+            `Galaxy validation should have ensured at least 3 neighbors per system. This indicates a broken galaxy!`;
+          console.error(errorMsg);
+          // Don't throw - let the ship clear cargo and continue, but log the critical error
+          // The galaxy validation should catch this during initialization
+        }
       }
       if (logDecisions) {
         logDecision(this.shipState.id, `  RESULT: Cannot travel - no reachable destinations (fuel/credits)`);
         logDecision(this.shipState.id, `RESULT: Travel attempt FAILED`);
       }
       return false;
+      }
     }
 
-    if (logDecisions) {
+    if (logDecisions && finalDistance !== null) {
       logDecision(this.shipState.id, `  Selected destination: system ${destinationSystem} (distance: ${finalDistance.toFixed(2)})`);
     }
 
     // Fix: Check fuel before starting travel
+    if (finalDistance === null) {
+      if (logDecisions) {
+        logDecision(this.shipState.id, `RESULT: Travel attempt FAILED - no destination selected`);
+      }
+      return false;
+    }
+    
     if (this.shipState.fuelLy < finalDistance) {
       if (this.shipState.isNPC) {
         const refueled = this.tryRefuelForTravel(finalDistance);
