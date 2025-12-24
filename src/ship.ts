@@ -3798,7 +3798,7 @@ export class Ship {
     if (logDecisions) {
       logDecision(this.shipState.id, `NPC REMOVED: ${reason} (was in system ${currentSystem}, credits: ${credits.toFixed(2)})`);
     }
-    // NPC removed silently (no logging)
+    console.log(`[NPC Removal] ${this.shipState.id} removed from system ${currentSystem}: ${reason}`);
 
     // Remove from current system if present
     if (this.shipState.currentSystem !== null) {

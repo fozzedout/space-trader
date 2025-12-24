@@ -423,8 +423,12 @@ export class StarSystem {
   }
 
   async getReachableSystems(): Promise<Array<{ id: SystemId; distance: number }>> {
+    // Ensure state is loaded before accessing it
+    await this.ensureLoaded();
+    
     if (!this.systemState) {
-      console.warn(`[StarSystem] getReachableSystems called but systemState is null`);
+      const systemId = this.state.id?.toString() || 'unknown';
+      console.warn(`[StarSystem ${systemId}] getReachableSystems called but systemState is null after load attempt. System may not be initialized.`);
       return [];
     }
 

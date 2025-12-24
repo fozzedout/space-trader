@@ -2657,7 +2657,7 @@ async function maintainNPCPopulation(): Promise<void> {
         if (shouldLogDecisions(shipId)) {
           logDecision(shipId, `NPC RESPAWNED: Replaced removed NPC, spawned in system ${randomSystem} with 500 credits`);
         }
-        console.log(`[Galaxy Tick] Respawned ${shipId} in system ${randomSystem}`);
+        console.log(`[Galaxy Tick] Respawned ${shipId} in system ${randomSystem} (was inactive/removed)`);
         
         // Record spawn for health tracking
         try {
