@@ -1499,18 +1499,18 @@ async function validateAndAdjustGalaxy(
   }
   
   // Final validation: Ensure every system has at least one reachable neighbor
-  const finalCoords = new Map<SystemId, { x: number; y: number }>();
+  const validationCoords = new Map<SystemId, { x: number; y: number }>();
   for (const systemId of validSystems) {
     const coords = await getSystemCoords(systemId);
     if (coords) {
-      finalCoords.set(systemId, coords);
+      validationCoords.set(systemId, coords);
     }
   }
   
   const isolatedSystems: SystemId[] = [];
-  for (const [systemId, coords] of finalCoords.entries()) {
+  for (const [systemId, coords] of validationCoords.entries()) {
     let neighborCount = 0;
-    for (const [otherId, otherCoords] of finalCoords.entries()) {
+    for (const [otherId, otherCoords] of validationCoords.entries()) {
       if (systemId === otherId) continue;
       const distance = calculateDistance(coords.x, coords.y, otherCoords.x, otherCoords.y);
       if (distance <= MAX_TRAVEL_DISTANCE_LY) {
@@ -1526,6 +1526,228 @@ async function validateAndAdjustGalaxy(
     const errorMsg = `[Galaxy Validation] CRITICAL: ${isolatedSystems.length} systems have no reachable neighbors within ${MAX_TRAVEL_DISTANCE_LY} LY. Galaxy is broken! Isolated systems: ${isolatedSystems.join(", ")}`;
     console.error(errorMsg);
     throw new Error(errorMsg);
+  }
+  
+  // Ensure we have exactly GALAXY_SIZE systems
+  if (validSystems.length < GALAXY_SIZE) {
+    const needed = GALAXY_SIZE - validSystems.length;
+    console.log(`[Galaxy Validation] Need to add ${needed} systems to reach target of ${GALAXY_SIZE}`);
+    
+    const fillRng = rng.derive(`fill-systems`);
+    const existingCoords = new Map<SystemId, { x: number; y: number }>();
+    for (const systemId of validSystems) {
+      const coords = await getSystemCoords(systemId);
+      if (coords) {
+        existingCoords.set(systemId, coords);
+      }
+    }
+    
+    // Find available system IDs
+    const availableIds: SystemId[] = [];
+    for (let i = 0; i < GALAXY_SIZE; i++) {
+      const systemId = i as SystemId;
+      if (!existingCoords.has(systemId)) {
+        availableIds.push(systemId);
+      }
+    }
+    
+    let systemsAdded = 0;
+    const optimalDistances = [4, 6, 8, 10, 12];
+    
+    // Try to place new systems near existing ones to maintain connectivity
+    for (let attempt = 0; attempt < needed * 200 && systemsAdded < needed && availableIds.length > 0; attempt++) {
+      // Pick a random existing system to place near
+      const existingSystems = Array.from(existingCoords.entries());
+      if (existingSystems.length === 0) break;
+      
+      const [anchorId, anchorCoords] = existingSystems[fillRng.derive(`anchor-${attempt}`).randomInt(0, existingSystems.length - 1)];
+      const angle = fillRng.derive(`angle-${attempt}`).random() * Math.PI * 2;
+      const distance = optimalDistances[attempt % optimalDistances.length];
+      const newX = anchorCoords.x + Math.cos(angle) * distance;
+      const newY = anchorCoords.y + Math.sin(angle) * distance;
+      
+      // Check if position is valid (at least 1 LY from all existing systems)
+      let validPosition = true;
+      for (const [_, otherCoords] of existingCoords.entries()) {
+        const dist = calculateDistance(newX, newY, otherCoords.x, otherCoords.y);
+        if (dist < MIN_DISTANCE_LY) {
+          validPosition = false;
+          break;
+        }
+      }
+      
+      if (validPosition) {
+        const newSystemId = availableIds.shift()!;
+        await createSystem(newSystemId, newX, newY, rng);
+        existingCoords.set(newSystemId, { x: newX, y: newY });
+        validSystems.push(newSystemId);
+        systemsAdded++;
+      }
+    }
+    
+    if (systemsAdded > 0) {
+      console.log(`[Galaxy Validation] Added ${systemsAdded} systems to reach target count`);
+    }
+    
+    // If we still don't have enough, place remaining systems randomly in valid positions
+    if (validSystems.length < GALAXY_SIZE && availableIds.length > 0) {
+      const remaining = GALAXY_SIZE - validSystems.length;
+      const randomRng = rng.derive(`random-fill`);
+      
+      for (let i = 0; i < remaining && availableIds.length > 0; i++) {
+        let placed = false;
+        for (let attempt = 0; attempt < 1000 && !placed; attempt++) {
+          const x = randomRng.derive(`x-${i}-${attempt}`).randomFloat(-64, 64);
+          const y = randomRng.derive(`y-${i}-${attempt}`).randomFloat(-64, 64);
+          
+          // Check if position is valid
+          let validPosition = true;
+          for (const [_, otherCoords] of existingCoords.entries()) {
+            const dist = calculateDistance(x, y, otherCoords.x, otherCoords.y);
+            if (dist < MIN_DISTANCE_LY) {
+              validPosition = false;
+              break;
+            }
+          }
+          
+          if (validPosition) {
+            const newSystemId = availableIds.shift()!;
+            await createSystem(newSystemId, x, y, rng);
+            existingCoords.set(newSystemId, { x, y });
+            validSystems.push(newSystemId);
+            placed = true;
+          }
+        }
+      }
+      
+      if (validSystems.length < GALAXY_SIZE) {
+        console.warn(`[Galaxy Validation] Warning: Could only create ${validSystems.length} systems out of ${GALAXY_SIZE} target`);
+      }
+    }
+  } else if (validSystems.length > GALAXY_SIZE) {
+    // This shouldn't happen, but handle it just in case
+    console.warn(`[Galaxy Validation] Warning: Have ${validSystems.length} systems, expected ${GALAXY_SIZE}`);
+    validSystems.sort((a, b) => a - b);
+    validSystems.splice(GALAXY_SIZE);
+  }
+  
+  // Final sweep: Check average distance and relocate systems that are too close
+  const finalCoordsMap = new Map<SystemId, { x: number; y: number }>();
+  for (const systemId of validSystems) {
+    const coords = await getSystemCoords(systemId);
+    if (coords) {
+      finalCoordsMap.set(systemId, coords);
+    }
+  }
+  
+  // Calculate average distance between all systems
+  let totalDistance = 0;
+  let pairCount = 0;
+  for (const [id1, coords1] of finalCoordsMap.entries()) {
+    for (const [id2, coords2] of finalCoordsMap.entries()) {
+      if (id1 < id2) {
+        const distance = calculateDistance(coords1.x, coords1.y, coords2.x, coords2.y);
+        totalDistance += distance;
+        pairCount++;
+      }
+    }
+  }
+  
+  const averageDistance = pairCount > 0 ? totalDistance / pairCount : 0;
+  console.log(`[Galaxy Validation] Average distance between systems: ${averageDistance.toFixed(2)} LY`);
+  
+  if (averageDistance < 5.0) {
+    console.log(`[Galaxy Validation] Average distance ${averageDistance.toFixed(2)} LY is below 5 LY threshold, relocating systems with closest neighbors`);
+    
+    // Find systems with closest neighbors
+    const systemNearestDistances: Array<{ id: SystemId; coords: { x: number; y: number }; nearestDistance: number }> = [];
+    for (const [systemId, coords] of finalCoordsMap.entries()) {
+      let nearestDistance = Infinity;
+      for (const [otherId, otherCoords] of finalCoordsMap.entries()) {
+        if (systemId === otherId) continue;
+        const distance = calculateDistance(coords.x, coords.y, otherCoords.x, otherCoords.y);
+        if (distance < nearestDistance) {
+          nearestDistance = distance;
+        }
+      }
+      systemNearestDistances.push({ id: systemId, coords, nearestDistance });
+    }
+    
+    // Sort by nearest distance (closest first) and take the ones that need relocation
+    systemNearestDistances.sort((a, b) => a.nearestDistance - b.nearestDistance);
+    const systemsToRelocate = systemNearestDistances.slice(0, Math.min(20, Math.floor(validSystems.length * 0.1)));
+    
+    const relocateRng = rng.derive(`relocate-average`);
+    let systemsRelocated = 0;
+    
+    for (const systemInfo of systemsToRelocate) {
+      // Find an empty area (far from other systems)
+      let bestPosition: { x: number; y: number } | null = null;
+      let bestMinDistance = 0;
+      
+      for (let attempt = 0; attempt < 500; attempt++) {
+        const x = relocateRng.derive(`x-${systemInfo.id}-${attempt}`).randomFloat(-64, 64);
+        const y = relocateRng.derive(`y-${systemInfo.id}-${attempt}`).randomFloat(-64, 64);
+        
+        // Find minimum distance to any existing system
+        let minDistance = Infinity;
+        for (const [otherId, otherCoords] of finalCoordsMap.entries()) {
+          if (otherId === systemInfo.id) continue;
+          const distance = calculateDistance(x, y, otherCoords.x, otherCoords.y);
+          if (distance < minDistance) {
+            minDistance = distance;
+          }
+        }
+        
+        // Prefer positions that are at least 5 LY from nearest neighbor and maximize minimum distance
+        if (minDistance >= MIN_DISTANCE_LY && minDistance > bestMinDistance) {
+          bestMinDistance = minDistance;
+          bestPosition = { x, y };
+        }
+      }
+      
+      if (bestPosition) {
+        // Update the system's coordinates
+        const system = localEnv.STAR_SYSTEM.get(localEnv.STAR_SYSTEM.idFromName(`system-${systemInfo.id}`));
+        const snapshotResponse = await system.fetch(new Request("https://dummy/snapshot"));
+        const snapshot = await snapshotResponse.json() as { state: any };
+        
+        // Re-initialize with new coordinates
+        await system.fetch(
+          new Request("https://dummy/initialize", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              ...snapshot.state,
+              x: bestPosition.x,
+              y: bestPosition.y,
+            }),
+          })
+        );
+        
+        finalCoordsMap.set(systemInfo.id, bestPosition);
+        systemsRelocated++;
+      }
+    }
+    
+    if (systemsRelocated > 0) {
+      console.log(`[Galaxy Validation] Relocated ${systemsRelocated} systems to improve average distance`);
+      
+      // Recalculate average distance
+      totalDistance = 0;
+      pairCount = 0;
+      for (const [id1, coords1] of finalCoordsMap.entries()) {
+        for (const [id2, coords2] of finalCoordsMap.entries()) {
+          if (id1 < id2) {
+            const distance = calculateDistance(coords1.x, coords1.y, coords2.x, coords2.y);
+            totalDistance += distance;
+            pairCount++;
+          }
+        }
+      }
+      const newAverageDistance = pairCount > 0 ? totalDistance / pairCount : 0;
+      console.log(`[Galaxy Validation] New average distance: ${newAverageDistance.toFixed(2)} LY`);
+    }
   }
   
   console.log(`[Galaxy Validation] Complete: ${validSystems.length} systems, all have reachable neighbors`);
