@@ -1498,7 +1498,37 @@ async function validateAndAdjustGalaxy(
     }
   }
   
-  console.log(`[Galaxy Validation] Complete: ${validSystems.length} systems`);
+  // Final validation: Ensure every system has at least one reachable neighbor
+  const finalCoords = new Map<SystemId, { x: number; y: number }>();
+  for (const systemId of validSystems) {
+    const coords = await getSystemCoords(systemId);
+    if (coords) {
+      finalCoords.set(systemId, coords);
+    }
+  }
+  
+  const isolatedSystems: SystemId[] = [];
+  for (const [systemId, coords] of finalCoords.entries()) {
+    let neighborCount = 0;
+    for (const [otherId, otherCoords] of finalCoords.entries()) {
+      if (systemId === otherId) continue;
+      const distance = calculateDistance(coords.x, coords.y, otherCoords.x, otherCoords.y);
+      if (distance <= MAX_TRAVEL_DISTANCE_LY) {
+        neighborCount++;
+      }
+    }
+    if (neighborCount === 0) {
+      isolatedSystems.push(systemId);
+    }
+  }
+  
+  if (isolatedSystems.length > 0) {
+    const errorMsg = `[Galaxy Validation] CRITICAL: ${isolatedSystems.length} systems have no reachable neighbors within ${MAX_TRAVEL_DISTANCE_LY} LY. Galaxy is broken! Isolated systems: ${isolatedSystems.join(", ")}`;
+    console.error(errorMsg);
+    throw new Error(errorMsg);
+  }
+  
+  console.log(`[Galaxy Validation] Complete: ${validSystems.length} systems, all have reachable neighbors`);
   return validSystems.sort((a, b) => a - b);
 }
 
