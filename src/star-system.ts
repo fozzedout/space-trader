@@ -304,6 +304,16 @@ export class StarSystem {
 
     this.dirty = true; // Mark as dirty - will be flushed at end of tick
 
+    // Process any pending arrivals that were queued before initialization
+    const now = Date.now();
+    for (const arrival of this.pendingArrivals) {
+      if (arrival.timestamp <= now) {
+        await this.applyArrivalEffects(arrival);
+      }
+    }
+    // Remove processed arrivals
+    this.pendingArrivals = this.pendingArrivals.filter(a => a.timestamp > now);
+
     return new Response(JSON.stringify({ success: true }), {
       headers: { "Content-Type": "application/json" },
     });
@@ -686,7 +696,9 @@ export class StarSystem {
   public async applyArrivalEffects(arrival: ShipArrivalEvent): Promise<void> {
     await this.ensureLoaded();
     if (!this.systemState) {
-      console.warn(`[System ${arrival.toSystem}] applyArrivalEffects called before initialization`);
+      // Queue arrival for processing after initialization
+      this.pendingArrivals.push(arrival);
+      this.dirty = true;
       return;
     }
     this.shipsInSystem.add(arrival.shipId);
