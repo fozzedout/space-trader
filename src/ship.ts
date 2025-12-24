@@ -3795,10 +3795,46 @@ export class Ship {
     const currentSystem = this.shipState.currentSystem;
     const credits = this.shipState.credits;
     
+    // Gather diagnostic information, especially for stagnation
+    const cargoEntries = Array.from(this.shipState.cargo.entries());
+    const cargoInfo = cargoEntries.length > 0 
+      ? cargoEntries.map(([good, qty]) => `${good}:${qty}`).join(", ")
+      : "[none]";
+    const fuelCostToCheapestNeighbor = this.getMobilityReserveCredits();
+    const canAffordFuel = credits >= fuelCostToCheapestNeighbor;
+    
+    // Build diagnostic message
+    let diagnosticInfo = `Credits: ${credits.toFixed(2)}, Phase: ${this.shipState.phase}, Fuel: ${this.shipState.fuelLy.toFixed(2)}/${this.shipState.fuelCapacityLy.toFixed(2)} LY, Cargo: ${cargoInfo}, Decisions: ${this.shipState.decisionCount}`;
+    
+    if (reason.includes("stagnation")) {
+      const now = Date.now();
+      const tickCount = Math.floor(now / 10000);
+      const lastTradeTick = this.shipState.lastSuccessfulTradeTick;
+      const ticksSinceLastTrade = lastTradeTick ? tickCount - lastTradeTick : null;
+      
+      diagnosticInfo += `, Last successful trade: ${lastTradeTick ? `${ticksSinceLastTrade} ticks ago (tick ${lastTradeTick})` : "never"}`;
+      diagnosticInfo += `, Can afford fuel: ${canAffordFuel} (need ${fuelCostToCheapestNeighbor.toFixed(2)} cr)`;
+      
+      // If at station, try to get reachable systems count
+      if (this.shipState.phase === "at_station" && currentSystem !== null) {
+        try {
+          const systemStub = this.env.STAR_SYSTEM.idFromName(`system-${currentSystem}`);
+          const systemObj = this.env.STAR_SYSTEM.get(systemStub);
+          const systemAsStarSystem = systemObj as StarSystem;
+          if (systemAsStarSystem.getReachableSystems && typeof systemAsStarSystem.getReachableSystems === 'function') {
+            const reachableSystems = await systemAsStarSystem.getReachableSystems();
+            diagnosticInfo += `, Reachable systems: ${reachableSystems.length}`;
+          }
+        } catch (error) {
+          // Ignore errors getting reachable systems
+        }
+      }
+    }
+    
     if (logDecisions) {
       logDecision(this.shipState.id, `NPC REMOVED: ${reason} (was in system ${currentSystem}, credits: ${credits.toFixed(2)})`);
     }
-    console.log(`[NPC Removal] ${this.shipState.id} removed from system ${currentSystem}: ${reason}`);
+    console.log(`[NPC Removal] ${this.shipState.id} removed from system ${currentSystem}: ${reason} | ${diagnosticInfo}`);
 
     // Remove from current system if present
     if (this.shipState.currentSystem !== null) {
