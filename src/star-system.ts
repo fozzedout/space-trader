@@ -13,6 +13,7 @@ import {
   SystemState,
   SystemId,
   MarketState,
+  MarketRequest,
   ShipId,
   GoodId,
   Timestamp,
@@ -27,23 +28,23 @@ import { getGoodDefinition, getAllGoodIds, isSpecializedGood } from "./goods";
 import { getPriceMultiplier } from "./economy-roles";
 import { 
   getPriceElasticity, 
-  getMaxPriceChangePerTick, 
   getMaxPriceMultiplier, 
   getMinPriceMultiplier,
-  getMeanReversionStrength,
-  getMarketDepthFactor,
-  getInventoryDampingThreshold,
-  getSigmoidSteepness,
-  getTransactionImpactMultiplier
+  getMeanReversionStrength
 } from "./balance-config";
 import { logTrade, getTradeLogs } from "./trade-logging";
 import { DO_INTERNAL } from "./durable-object-helpers";
+import { updateRequestRegistry } from "./request-registry";
 import * as fs from "fs";
 import * as path from "path";
 
 const TICK_INTERVAL_MS = 30000; // 30 seconds per tick (increased to allow time for processing all ships between ticks)
 const STATION_CAPACITY = 10000; // max inventory per good
 const SALES_TAX_RATE = 0.03; // 3% tax on purchases only (no tax on sales)
+const REQUEST_LOW_RATIO = 0.5;
+const REQUEST_TARGET_RATIO = 0.8;
+const REQUEST_MIN_BONUS_RATE = 0.1;
+const REQUEST_MAX_BONUS_RATE = 0.4;
 
 // Track if we've detected zero inventory and stopped logging
 let zeroInventoryDetected = false;
@@ -327,6 +328,8 @@ export class StarSystem {
     // Remove processed arrivals
     this.pendingArrivals = this.pendingArrivals.filter(a => a.timestamp > now);
 
+    this.refreshRequestRegistry();
+
     return new Response(JSON.stringify({ success: true }), {
       headers: { "Content-Type": "application/json" },
     });
@@ -347,6 +350,7 @@ export class StarSystem {
     }
 
     this.dirty = true; // Mark as dirty - will be flushed at end of tick
+    this.refreshRequestRegistry();
 
     return new Response(JSON.stringify({ success: true }), {
       headers: { "Content-Type": "application/json" },
@@ -360,11 +364,22 @@ export class StarSystem {
   }
 
   private async handleGetSnapshot(): Promise<Response> {
+    const marketsWithRequests = new Map<GoodId, MarketState>();
+    for (const [goodId, market] of this.markets.entries()) {
+      const request = this.getMarketRequest(market);
+      marketsWithRequests.set(goodId, {
+        ...market,
+        request,
+      });
+    }
+
     const snapshot: SystemSnapshot = {
       state: this.systemState!,
-      markets: new Map(this.markets),
+      markets: marketsWithRequests,
       shipsInSystem: Array.from(this.shipsInSystem),
     };
+
+    this.refreshRequestRegistry();
 
     return new Response(JSON.stringify(snapshot, (key, value) => {
       if (value instanceof Map) {
@@ -426,7 +441,8 @@ export class StarSystem {
     // Ensure state is loaded before accessing it
     await this.ensureLoaded();
     
-    if (!this.systemState) {
+    const systemState = this.systemState;
+    if (!systemState) {
       const systemId = this.state.id?.toString() || 'unknown';
       console.warn(`[StarSystem ${systemId}] getReachableSystems called but systemState is null after load attempt. System may not be initialized.`);
       return [];
@@ -435,9 +451,9 @@ export class StarSystem {
     const MAX_TRAVEL_DISTANCE = 15; // Maximum distance ships can travel
     const GALAXY_SIZE = 256; // Total number of systems
     
-    const currentX = this.systemState.x ?? 0;
-    const currentY = this.systemState.y ?? 0;
-    const currentId = this.systemState.id;
+    const currentX = systemState.x ?? 0;
+    const currentY = systemState.y ?? 0;
+    const currentId = systemState.id;
     
     const reachableSystems: Array<{ id: SystemId; distance: number }> = [];
     let systemsChecked = 0;
@@ -534,6 +550,7 @@ export class StarSystem {
 
     this.systemState.lastTickTime = now;
     this.dirty = true; // Mark as dirty during tick
+    this.refreshRequestRegistry();
     
     // Flush state once at the end of tick
     await this.flushState();
@@ -558,6 +575,9 @@ export class StarSystem {
     rng: DeterministicRNG,
     traderCount: number
   ): Promise<void> {
+    const systemState = this.systemState;
+    if (!systemState) return;
+
     const inventoryBefore = market.inventory;
     
     // Production adds to inventory
@@ -569,7 +589,7 @@ export class StarSystem {
     // Log production
     if (market.production > 0 && !zeroInventoryDetected) {
       logTrade(
-        `[System ${this.systemState.id}] PRODUCTION: ${market.production.toFixed(4)} ${goodId} ` +
+        `[System ${systemState.id}] PRODUCTION: ${market.production.toFixed(4)} ${goodId} ` +
         `(inventory: ${inventoryBefore.toFixed(2)} -> ${market.inventory.toFixed(2)})`
       );
     }
@@ -581,7 +601,7 @@ export class StarSystem {
     // Log consumption
     if (consumed > 0 && !zeroInventoryDetected) {
       logTrade(
-        `[System ${this.systemState.id}] CONSUMPTION: ${consumed.toFixed(4)} ${goodId} ` +
+        `[System ${systemState.id}] CONSUMPTION: ${consumed.toFixed(4)} ${goodId} ` +
         `(inventory: ${(market.inventory + consumed).toFixed(2)} -> ${market.inventory.toFixed(2)})`
       );
     }
@@ -589,11 +609,11 @@ export class StarSystem {
     // Check for zero inventory and stop logging
     if (market.inventory <= 0 && !zeroInventoryDetected) {
       zeroInventoryDetected = true;
-      zeroInventorySystem = this.systemState.id;
+      zeroInventorySystem = systemState.id;
       zeroInventoryGood = goodId;
       
       logTrade(
-        `[System ${this.systemState.id}] ZERO INVENTORY DETECTED: ${goodId} ` +
+        `[System ${systemState.id}] ZERO INVENTORY DETECTED: ${goodId} ` +
         `(inventory: ${market.inventory.toFixed(2)}, production: ${market.production.toFixed(4)}, ` +
         `consumption: ${market.consumption.toFixed(4)})`
       );
@@ -605,131 +625,71 @@ export class StarSystem {
     // Space Elevator: Small but frequent stock adjustments based on tech level and government
     this.applySpaceElevator(goodId, market, tick, rng);
 
-    // Improved economic model with non-linear response, mean reversion, and market depth
-    
-    // 1. Calculate expected stock based on natural equilibrium to prevent first-tick price spikes
-    // Expected stock should match what inventory "should be" given production/consumption rates
-    const baselineStock = 2000; // Initial inventory level
-    // Calculate expected stock based on production/consumption equilibrium (same as space elevator target)
-    const productionConsumptionRate = market.production + market.consumption;
-    const equilibriumStock = Math.max(1, productionConsumptionRate * 10); // 10 ticks worth of activity
-    const targetInventory = equilibriumStock * 0.5; // Space elevator target (50% of equilibrium)
-    
-    // Use baselineStock as expectedStock, but add damping for small deviations to prevent first-tick spikes
-    // The damping threshold (15%) creates a "neutral zone" where price changes are reduced
-    // This prevents immediate price spikes when inventory drifts slightly from baseline
-    const expectedStock = baselineStock;
-    
-    // Calculate inventory ratio with damping zone around baseline to prevent first-tick spikes
+    const expectedStock = Math.max(1, (market.production + market.consumption) * 10);
     const inventoryRatio = market.inventory / expectedStock;
-    // Add damping: if ratio is within 15% of 1.0, reduce the effective deviation
-    const dampingZone = 0.15; // 15% neutral zone
-    let effectiveRatio = inventoryRatio;
-    if (Math.abs(inventoryRatio - 1.0) < dampingZone) {
-      // Within damping zone: scale deviation toward 1.0 to reduce price impact
-      const deviation = inventoryRatio - 1.0;
-      effectiveRatio = 1.0 + deviation * 0.3; // Reduce deviation by 70%
-    }
-    
-    // Use effectiveRatio (with damping) for price calculation
-    // When inventory = expectedStock, ratio = 1.0, imbalance should be near 0 (neutral)
-    // When inventory < expectedStock, ratio < 1.0, imbalance should be positive (price goes up)
-    // When inventory > expectedStock, ratio > 1.0, imbalance should be negative (price goes down)
-    // Normalize: map inventory ratio to [-1, 1] where 1.0 ratio = 0 imbalance (neutral point)
-    // Use a sigmoid-like mapping: ratio 0.5 → -1, ratio 1.0 → 0, ratio 1.5 → +1
-    // Use effectiveRatio (with damping) to prevent first-tick price spikes
-    const normalizedInventory = (effectiveRatio - 1.0) * 2; // Maps 1.0 to 0, 0.5 to -1, 1.5 to +1
-    const sigmoidSteepness = getSigmoidSteepness();
-    const imbalance = -Math.tanh(normalizedInventory * sigmoidSteepness); // Smooth S-curve, clamped to [-1, 1]
-    
-    // 2. Apply market depth based on trader capacity vs planet economic activity
-    // Market stability = how much traders can move vs planet's natural economic flow
-    const MAX_CARGO_PER_TRADER = 100; // Maximum cargo space per trader
-    const TRADER_ACTIVITY_FACTOR = 0.1; // Estimate: traders move ~10% of their capacity per tick on average
-    const estimatedTraderCapacity = traderCount * MAX_CARGO_PER_TRADER * TRADER_ACTIVITY_FACTOR;
-    const planetEconomicActivity = market.production + market.consumption;
-    
-    // Market depth: if planet activity >> trader capacity, market is very stable
-    // If traders can significantly impact the market, it's more volatile
-    const traderImpactRatio = planetEconomicActivity > 0 
-      ? estimatedTraderCapacity / planetEconomicActivity 
-      : 1.0; // If no planet activity, assume high volatility
-    // Convert to stability: low trader impact = high stability
-    // Saturate quickly: once planet activity is 10x trader capacity, market is very stable
-    // Above that threshold, there's barely any difference in volatility
-    const stabilityThreshold = 0.1; // 10x planet activity = 0.1 trader impact ratio
-    let marketStability: number;
-    if (traderImpactRatio <= stabilityThreshold) {
-      // Planet activity >> trader capacity: saturate at 0.98 for minimal differences
-      marketStability = 0.98; // Fixed high stability when traders can't significantly impact market
-    } else {
-      // Traders can impact market: stability decreases as trader impact increases
-      // Map from [stabilityThreshold, 1.0] to [0.98, 0.2]
-      const normalizedImpact = (traderImpactRatio - stabilityThreshold) / (1.0 - stabilityThreshold);
-      marketStability = 0.98 - 0.78 * Math.pow(normalizedImpact, 0.5); // 0.98 to 0.2
-    }
-    
-    const marketDepthFactor = getMarketDepthFactor();
-    const effectiveElasticity = getPriceElasticity() * (0.3 + 0.7 * marketStability * marketDepthFactor);
-    
-    // 3. Calculate supply/demand price change (percentage-based, not absolute)
-    const supplyDemandChange = imbalance * effectiveElasticity * market.price;
-    
-    // 4. Calculate trader activity scaling (square root scaling, base 0.1% for 5 traders)
-    const baseTraderCount = 5;
-    const traderScale = Math.max(1, Math.sqrt(traderCount / baseTraderCount));
-    // Use configured mean reversion strength (default 2% per tick)
-    const baseMeanReversion = getMeanReversionStrength();
-    const scaledMeanReversion = baseMeanReversion * traderScale;
-
-    // 5. Calculate mean reversion (pulls price back toward base price)
-    const priceDeviation = (market.price - market.basePrice) / market.basePrice;
-    const reversionChange = -priceDeviation * scaledMeanReversion * market.price;
-    
-    // 6. Apply damping for extreme inventory levels (buffer zones)
-    const inventoryDampingThreshold = getInventoryDampingThreshold();
-    let dampingFactor = 1.0;
-    if (inventoryRatio < inventoryDampingThreshold) {
-      // Very low inventory - reduce price increase rate
-      dampingFactor = 0.5 + (inventoryRatio / inventoryDampingThreshold) * 0.5; // 0.5 to 1.0
-    } else if (inventoryRatio > (1 - inventoryDampingThreshold)) {
-      // Very high inventory - reduce price decrease rate
-      dampingFactor = 0.5 + ((1 - inventoryRatio) / inventoryDampingThreshold) * 0.5; // 0.5 to 1.0
-    }
-    
-    // 7. Add volatility (random noise) - scaled by trader activity AND market stability
-    // Volatility should add small random noise, not multiply the entire change
-    const volatilityRng = rng.derive(`volatility-${goodId}-${tick}`);
-    const good = getGoodDefinition(goodId);
-    const baseVolatility = good ? good.volatility : 0.2;
-    // Scale volatility: base volatility * trader scale * (inverse of market stability)
-    // High planet activity relative to traders = high stability = low volatility multiplier
-    // marketStability ranges from 0.2 to 0.98, so volatility multiplier ranges from 0.2 to 1.0
-    const volatilityMultiplier = 0.2 + 0.8 * (1 - marketStability); // Invert: high stability = low volatility
-    const scaledVolatility = baseVolatility * traderScale * volatilityMultiplier;
-    // Apply volatility as a small random change, not a multiplier
-    const volatilityChange = volatilityRng.randomFloat(-scaledVolatility, scaledVolatility) * market.price;
-    
-    // 8. Combine all price changes (volatility adds noise, doesn't multiply)
-    const totalChange = (supplyDemandChange + reversionChange) * dampingFactor + volatilityChange;
-    
-    // 9. Apply caps and limits - scale max change by market stability
-    // Markets with high planet activity relative to traders should have smaller max price changes
-    const baseMaxChange = getMaxPriceChangePerTick();
-    const stabilityAdjustedMaxChange = baseMaxChange * (0.3 + 0.7 * marketStability); // 30% to 100% of base max change
-    const cappedChange = Math.max(
-      -stabilityAdjustedMaxChange * market.price,
-      Math.min(stabilityAdjustedMaxChange * market.price, totalChange)
-    );
-    const newPrice = market.price + cappedChange;
-    
-    // 10. Enforce min/max multipliers
+    const clampedRatio = Math.max(0.1, Math.min(3.0, inventoryRatio));
+    const elasticity = getPriceElasticity();
+    const targetMultiplier = Math.pow(clampedRatio, -elasticity);
     const maxMultiplier = getMaxPriceMultiplier();
     const minMultiplier = getMinPriceMultiplier();
+    const clampedMultiplier = Math.max(minMultiplier, Math.min(maxMultiplier, targetMultiplier));
+    const targetPrice = market.basePrice * clampedMultiplier;
+    const adjustRate = getMeanReversionStrength();
+    const newPrice = market.price + (targetPrice - market.price) * adjustRate;
     market.price = Math.max(
       market.basePrice * minMultiplier,
       Math.min(market.basePrice * maxMultiplier, newPrice)
     );
+  }
+
+  private getMarketRequest(market: MarketState): MarketRequest | null {
+    if (market.consumption <= 0) return null;
+
+    const expectedStock = Math.max(1, (market.production + market.consumption) * 10);
+    const lowThreshold = expectedStock * REQUEST_LOW_RATIO;
+    if (market.inventory >= lowThreshold) return null;
+
+    const targetInventory = expectedStock * REQUEST_TARGET_RATIO;
+    const remainingUnits = Math.max(0, targetInventory - market.inventory);
+    if (remainingUnits <= 0) return null;
+
+    const shortageRatio = Math.min(1, (lowThreshold - market.inventory) / lowThreshold);
+    const bonusRate = REQUEST_MIN_BONUS_RATE + (REQUEST_MAX_BONUS_RATE - REQUEST_MIN_BONUS_RATE) * shortageRatio;
+    const bonusPerUnit = Math.max(1, market.basePrice * bonusRate);
+
+    return {
+      bonusPerUnit,
+      remainingUnits,
+    };
+  }
+
+  private refreshRequestRegistry(): void {
+    const systemState = this.systemState;
+    if (!systemState) return;
+
+    const requests: Array<{
+      goodId: GoodId;
+      bonusPerUnit: number;
+      remainingUnits: number;
+      price: number;
+    }> = [];
+    for (const [goodId, market] of this.markets.entries()) {
+      const request = this.getMarketRequest(market);
+      if (!request || request.remainingUnits <= 0 || request.bonusPerUnit <= 0) {
+        continue;
+      }
+      requests.push({
+        goodId,
+        bonusPerUnit: request.bonusPerUnit,
+        remainingUnits: request.remainingUnits,
+        price: market.price,
+      });
+    }
+
+    updateRequestRegistry(systemState.id, {
+      x: systemState.x ?? 0,
+      y: systemState.y ?? 0,
+    }, requests);
   }
 
   /**
@@ -828,18 +788,7 @@ export class StarSystem {
     }
     this.shipsInSystem.add(arrival.shipId);
 
-    // Update price info from origin system (rumors spread)
-    for (const [goodId, originPrice] of arrival.priceInfo.entries()) {
-      const market = this.markets.get(goodId);
-      if (market) {
-        // Slight price adjustment based on external information
-        const priceDiff = (originPrice - market.price) / market.price;
-        if (Math.abs(priceDiff) > 0.1) {
-          // Significant price difference - adjust slightly
-          market.price = market.price * (1 + priceDiff * 0.05);
-        }
-      }
-    }
+    // Price updates are inventory-driven; arrival price rumors are ignored.
     
     // Mark as dirty - will be saved at end of tick
     this.dirty = true;
@@ -911,6 +860,15 @@ export class StarSystem {
       });
     }
 
+    const systemState = this.systemState;
+    if (!systemState) {
+      return new Response(JSON.stringify({ error: "System not initialized" }), {
+        status: 400,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+    const systemId = systemState.id;
+
     // Auto-register ships that aren't in the list but are trying to trade
     // This handles NPCs that were initialized at a system but never went through arrival
     if (!this.shipsInSystem.has(body.shipId)) {
@@ -946,7 +904,7 @@ export class StarSystem {
       // Log trade
       if (!zeroInventoryDetected) {
         logTrade(
-          `[System ${this.systemState.id}] TRADE BUY: ${body.shipId} bought ${body.quantity} ${body.goodId} ` +
+          `[System ${systemId}] TRADE BUY: ${body.shipId} bought ${body.quantity} ${body.goodId} ` +
           `at ${currentPrice.toFixed(2)} cr (inventory: ${inventoryBefore.toFixed(2)} -> ${market.inventory.toFixed(2)})`
         );
       }
@@ -954,11 +912,11 @@ export class StarSystem {
       // Check for zero inventory after trade
       if (market.inventory <= 0 && !zeroInventoryDetected) {
         zeroInventoryDetected = true;
-        zeroInventorySystem = this.systemState.id;
+        zeroInventorySystem = systemId;
         zeroInventoryGood = body.goodId;
         
         logTrade(
-          `[System ${this.systemState.id}] ZERO INVENTORY DETECTED: ${body.goodId} after trade ` +
+          `[System ${systemId}] ZERO INVENTORY DETECTED: ${body.goodId} after trade ` +
           `(inventory: ${market.inventory.toFixed(2)}, production: ${market.production.toFixed(4)}, ` +
           `consumption: ${market.consumption.toFixed(4)})`
         );
@@ -969,19 +927,21 @@ export class StarSystem {
       
       // Immediate price adjustment: buying reduces inventory, increases price
       // Impact based on trade size relative to expected stock levels
-      const expectedStock = Math.max(1, (market.production + market.consumption) * 10);
-      const tradeImpact = (body.quantity / expectedStock) * getTransactionImpactMultiplier();
-      const priceAdjustment = tradeImpact * currentPrice; // Buy increases price
-      const newPrice = currentPrice + priceAdjustment;
-      const maxMultiplier = getMaxPriceMultiplier();
-      const minMultiplier = getMinPriceMultiplier();
-      market.price = Math.max(
-        market.basePrice * minMultiplier,
-        Math.min(market.basePrice * maxMultiplier, newPrice)
-      );
+      // DISABLED FOR TESTING: Stop all price fluctuations
+      // const expectedStock = Math.max(1, (market.production + market.consumption) * 10);
+      // const tradeImpact = (body.quantity / expectedStock) * getTransactionImpactMultiplier();
+      // const priceAdjustment = tradeImpact * currentPrice; // Buy increases price
+      // const newPrice = currentPrice + priceAdjustment;
+      // const maxMultiplier = getMaxPriceMultiplier();
+      // const minMultiplier = getMinPriceMultiplier();
+      // market.price = Math.max(
+      //   market.basePrice * minMultiplier,
+      //   Math.min(market.basePrice * maxMultiplier, newPrice)
+      // );
       const tax = baseCost * SALES_TAX_RATE;
       const totalCost = baseCost + tax; // Buyer pays price + tax
       this.dirty = true; // Mark state as dirty since inventory changed
+      this.refreshRequestRegistry();
 
       return new Response(
         JSON.stringify({
@@ -1008,41 +968,49 @@ export class StarSystem {
       // Calculate value at current price (before adjustment)
       const currentPrice = market.price;
       const inventoryBefore = market.inventory;
+      const request = this.getMarketRequest(market);
+      const bonusUnits = request ? Math.min(actualQuantity, request.remainingUnits) : 0;
+      const bonusValue = request ? bonusUnits * request.bonusPerUnit : 0;
       
       // Update inventory
       market.inventory += actualQuantity;
       
       // Log trade
       if (!zeroInventoryDetected) {
+        const bonusNote = bonusValue > 0 ? ` + bonus ${bonusValue.toFixed(2)} cr` : "";
         logTrade(
-          `[System ${this.systemState.id}] TRADE SELL: ${body.shipId} sold ${actualQuantity} ${body.goodId} ` +
-          `at ${currentPrice.toFixed(2)} cr (inventory: ${inventoryBefore.toFixed(2)} -> ${market.inventory.toFixed(2)})`
+          `[System ${systemId}] TRADE SELL: ${body.shipId} sold ${actualQuantity} ${body.goodId} ` +
+          `at ${currentPrice.toFixed(2)} cr${bonusNote} (inventory: ${inventoryBefore.toFixed(2)} -> ${market.inventory.toFixed(2)})`
         );
       }
       
       // Immediate price adjustment: selling increases inventory, decreases price
       // Impact based on trade size relative to expected stock levels
-      const expectedStock = Math.max(1, (market.production + market.consumption) * 10);
-      const tradeImpact = (actualQuantity / expectedStock) * getTransactionImpactMultiplier();
-      const priceAdjustment = -tradeImpact * currentPrice; // Sell decreases price
-      const newPrice = currentPrice + priceAdjustment;
-      const maxMultiplier = getMaxPriceMultiplier();
-      const minMultiplier = getMinPriceMultiplier();
-      market.price = Math.max(
-        market.basePrice * minMultiplier,
-        Math.min(market.basePrice * maxMultiplier, newPrice)
-      );
+      // DISABLED FOR TESTING: Stop all price fluctuations
+      // const expectedStock = Math.max(1, (market.production + market.consumption) * 10);
+      // const tradeImpact = (actualQuantity / expectedStock) * getTransactionImpactMultiplier();
+      // const priceAdjustment = -tradeImpact * currentPrice; // Sell decreases price
+      // const newPrice = currentPrice + priceAdjustment;
+      // const maxMultiplier = getMaxPriceMultiplier();
+      // const minMultiplier = getMinPriceMultiplier();
+      // market.price = Math.max(
+      //   market.basePrice * minMultiplier,
+      //   Math.min(market.basePrice * maxMultiplier, newPrice)
+      // );
       
       const baseValue = currentPrice * actualQuantity;
       const tax = 0; // No tax on sales
-      const totalValue = baseValue; // Seller receives full price (no tax)
+      const totalValue = baseValue + bonusValue; // Seller receives full price + request bonus
       this.dirty = true; // Mark state as dirty since inventory changed
+      this.refreshRequestRegistry();
 
       return new Response(
         JSON.stringify({
           success: true,
           price: market.price,
           totalValue,
+          bonusValue,
+          bonusUnits,
           tax,
           quantity: actualQuantity,
           newInventory: market.inventory,
@@ -1081,7 +1049,8 @@ export class StarSystem {
         `Logs written to: ${filepath} (${logs.length} entries)`
       );
     } catch (error) {
-      console.error(`[System ${this.systemState.id}] Error writing logs to file:`, error);
+      const systemId = this.systemState?.id ?? "unknown";
+      console.error(`[System ${systemId}] Error writing logs to file:`, error);
     }
   }
 }

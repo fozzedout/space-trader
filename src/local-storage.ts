@@ -717,9 +717,12 @@ export class LocalStorage {
       originSystem: shipRow.origin_system ?? null,
       originPriceInfo: shipRow.origin_price_info ? JSON.parse(shipRow.origin_price_info) : null,
       chosenDestinationSystemId: shipRow.chosen_destination_system_id ?? null,
+      navigationTargetSystemId: null,
       expectedMarginAtChoiceTime: shipRow.expected_margin_at_choice_time ?? null,
+      expectedPurchasePriceAtChoiceTime: null,
       immobileTicks: 0,
       lastSuccessfulTradeTick: Date.now(),
+      lastSuccessfulTradeDecisionCount: 0,
       decisionCount: 0,
       lastCargoPurchaseTick: null,
     };

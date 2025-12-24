@@ -24,6 +24,7 @@ import { FUEL_PRICE_PER_LY } from "./armaments";
 import { getAllGoodIds, getGoodDefinition } from "./goods";
 import { getMinProfitMargin } from "./balance-config";
 import { profiler } from "./profiler";
+import { getRequestRegistry } from "./request-registry";
 
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
 const GALAXY_SIZE = parseInt(process.env.GALAXY_SIZE || "256", 10);
@@ -3047,6 +3048,27 @@ async function handleGalaxyMap(
   }, 200, corsHeaders);
 }
 
+async function handleGalaxyRequests(
+  corsHeaders: Record<string, string>
+): Promise<Response> {
+  const systems = getRequestRegistry().map(entry => ({
+    id: entry.systemId,
+    x: entry.x,
+    y: entry.y,
+    requests: entry.requests.map(request => ({
+      goodId: request.goodId,
+      bonusPerUnit: request.bonusPerUnit,
+      remainingUnits: request.remainingUnits,
+      price: request.price,
+    })),
+  }));
+
+  return jsonResponse({
+    systems,
+    timestamp: Date.now(),
+  }, 200, corsHeaders);
+}
+
 async function handleSystemMonitor(
   systemId: SystemId,
   corsHeaders: Record<string, string>
@@ -3458,6 +3480,8 @@ function clearPlayerLogs(): void {
       response = await handleResetZeroInventoryMonitoring(corsHeaders);
     } else if (path === "/api/galaxy/map" && method === "GET") {
       response = await handleGalaxyMap(corsHeaders);
+    } else if (path === "/api/galaxy/requests" && method === "GET") {
+      response = await handleGalaxyRequests(corsHeaders);
     } else if (path === "/api/player" && method === "GET") {
       const rawName = url.searchParams.get("name") || "";
       const name = normalizePlayerName(rawName);

@@ -4,7 +4,6 @@
  */
 
 import { ShipId, SystemId } from "./types";
-import { recordTradeEvent } from "./galaxy-health";
 
 export interface TraderStats {
   shipId: ShipId;
@@ -233,8 +232,6 @@ export function recordTrade(
   }
   system.lastUpdated = Date.now();
   
-  // Record trade event for health tracking
-  recordTradeEvent(type, profit);
 }
 
 /**
@@ -353,4 +350,3 @@ export function clearLeaderboard(): void {
   systemStats.clear();
   tradeRoutes.clear();
 }
-

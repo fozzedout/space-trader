@@ -181,29 +181,26 @@ describe("Market Mechanics", () => {
       expect(buyResponse.status).toBe(400);
     });
 
-    it("should limit selling when station at capacity", async () => {
+    it("should allow selling beyond the old capacity limit", async () => {
       const snapshot = await (await system.fetch(new Request("https://dummy/snapshot"))).json();
       const currentInventory = snapshot.markets.food.inventory;
-      const maxCapacity = 1000;
+      const sellQuantity = 2000;
+      const sellResponse = await system.fetch(new Request("https://dummy/trade", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          shipId: "test-ship",
+          goodId: "food",
+          quantity: sellQuantity,
+          type: "sell",
+        }),
+      }));
 
-      if (currentInventory < maxCapacity) {
-        const sellResponse = await system.fetch(new Request("https://dummy/trade", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            shipId: "test-ship",
-            goodId: "food",
-            quantity: maxCapacity * 2, // More than capacity
-            type: "sell",
-          }),
-        }));
-
-        expect(sellResponse.status).toBe(200);
-        const sellData = await sellResponse.json();
-        
-        // Should only accept up to capacity
-        expect(sellData.quantity).toBeLessThanOrEqual(maxCapacity - currentInventory);
-      }
+      expect(sellResponse.status).toBe(200);
+      const sellData = await sellResponse.json();
+      
+      expect(sellData.quantity).toBe(sellQuantity);
+      expect(sellData.newInventory).toBeCloseTo(currentInventory + sellQuantity);
     });
   });
 
@@ -348,32 +345,28 @@ describe("Market Mechanics", () => {
       }
     });
 
-    it("should handle price changes when inventory is at capacity", async () => {
+    it("should handle price changes when inventory is high", async () => {
       const snapshot1 = await (await system.fetch(new Request("https://dummy/snapshot"))).json();
       const currentInventory = snapshot1.markets.food.inventory;
-      const maxCapacity = 10000;
-      const spaceAvailable = maxCapacity - currentInventory;
+      const sellQuantity = 5000;
 
-      // Sell to fill capacity
-      if (spaceAvailable > 0) {
-        await system.fetch(new Request("https://dummy/trade", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            shipId: "test-ship",
-            goodId: "food",
-            quantity: spaceAvailable,
-            type: "sell",
-          }),
-        }));
+      await system.fetch(new Request("https://dummy/trade", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          shipId: "test-ship",
+          goodId: "food",
+          quantity: sellQuantity,
+          type: "sell",
+        }),
+      }));
 
-        // Process tick - price should adjust
-        await system.fetch(new Request("https://dummy/tick", { method: "POST" }));
+      // Process tick - price should adjust
+      await system.fetch(new Request("https://dummy/tick", { method: "POST" }));
 
-        const snapshot2 = await (await system.fetch(new Request("https://dummy/snapshot"))).json();
-        expect(snapshot2.markets.food.inventory).toBeLessThanOrEqual(maxCapacity);
-        expect(snapshot2.markets.food.price).toBeGreaterThan(0);
-      }
+      const snapshot2 = await (await system.fetch(new Request("https://dummy/snapshot"))).json();
+      expect(snapshot2.markets.food.inventory).toBeGreaterThanOrEqual(currentInventory);
+      expect(snapshot2.markets.food.price).toBeGreaterThan(0);
     });
   });
 

@@ -33,7 +33,7 @@ let balanceConfig: BalanceConfig = {
   // New defaults
   meanReversionStrength: 0.05,       // 5% per tick toward base price (increased to pull prices back faster)
   marketDepthFactor: 0.5,            // Medium market depth effect
-  transactionImpactMultiplier: 0.05, // 5% impact from trades
+  transactionImpactMultiplier: 0.001, // 0.1% impact from trades
   inventoryDampingThreshold: 0.15,   // 15% buffer zones
   sigmoidSteepness: 3.0,             // Moderate sigmoid curve
   // Trade scoring weights for Smart Scoring

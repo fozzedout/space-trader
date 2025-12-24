@@ -6,11 +6,11 @@
  * fetching snapshots individually, eliminating duplicate I/O operations.
  */
 
-import { SystemId, GoodId, TechLevel } from "./types";
+import { SystemId, GoodId, TechLevel, MarketRequest } from "./types";
 
 export interface CachedSnapshot {
   state: { x?: number; y?: number; techLevel?: TechLevel } | null;
-  markets: Record<GoodId, { price: number; inventory: number; production?: number; consumption?: number }>;
+  markets: Record<GoodId, { price: number; inventory: number; production?: number; consumption?: number; request?: MarketRequest | null }>;
 }
 
 let systemSnapshotCache: Map<SystemId, CachedSnapshot> | null = null;
@@ -54,4 +54,3 @@ export function getCachedSnapshot(
 export function isCacheAvailable(): boolean {
   return systemSnapshotCache !== null;
 }
-

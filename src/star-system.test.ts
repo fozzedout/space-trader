@@ -62,7 +62,7 @@ describe("StarSystem", () => {
       expect(Object.keys(snapshot.markets).length).toBeGreaterThan(0);
     });
 
-    it("should not allow double initialization", async () => {
+    it("should allow re-initialization", async () => {
       const initData = {
         id: 0 as SystemId,
         name: "Test System",
@@ -88,7 +88,7 @@ describe("StarSystem", () => {
       });
       
       const secondResponse = await system.fetch(initRequest2);
-      expect(secondResponse.status).toBe(400);
+      expect(secondResponse.status).toBe(200);
     });
   });
 
@@ -322,9 +322,7 @@ describe("StarSystem", () => {
       expect(data.totalValue).toBeGreaterThan(0);
     });
 
-    it("should reject selling when station is at capacity", async () => {
-      // This would require setting up a system at capacity
-      // For now, we'll test the error handling
+    it("should reject selling for nonexistent goods", async () => {
       const tradeRequest = new Request("https://dummy/trade", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -458,40 +456,54 @@ describe("StarSystem", () => {
       }));
     });
 
-    it("should limit selling when station is at capacity (10000)", async () => {
+    it("should allow selling beyond the old capacity limit", async () => {
       const snapshot = await (await system.fetch(new Request("https://dummy/snapshot"))).json();
       const currentInventory = snapshot.markets.food?.inventory || 0;
-      const maxCapacity = 10000;
-      const spaceAvailable = maxCapacity - currentInventory;
+      const sellQuantity = 15000;
+      const tradeRequest = new Request("https://dummy/trade", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          shipId: "test-ship",
+          goodId: "food",
+          quantity: sellQuantity,
+          type: "sell",
+        }),
+      });
 
-      if (spaceAvailable > 0) {
-        // Try to sell more than capacity allows
-        const tradeRequest = new Request("https://dummy/trade", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            shipId: "test-ship",
-            goodId: "food",
-            quantity: spaceAvailable + 1000, // More than capacity
-            type: "sell",
-          }),
-        });
-
-        const response = await system.fetch(tradeRequest);
-        expect(response.status).toBe(200);
-        
-        const data = await response.json();
-        // Should only accept up to capacity
-        expect(data.quantity).toBeLessThanOrEqual(spaceAvailable);
-      }
+      const response = await system.fetch(tradeRequest);
+      expect(response.status).toBe(200);
+      
+      const data = await response.json();
+      expect(data.quantity).toBe(sellQuantity);
+      expect(data.newInventory).toBeCloseTo(currentInventory + sellQuantity);
     });
 
-    it("should reject selling when station is exactly at capacity", async () => {
-      // This test would require setting inventory to exactly 10000
-      // For now, verify the capacity constant exists
+    it("should allow inventory to exceed the old cap", async () => {
       const snapshot = await (await system.fetch(new Request("https://dummy/snapshot"))).json();
-      expect(snapshot.markets.food).toBeDefined();
-      expect(snapshot.markets.food.inventory).toBeLessThanOrEqual(10000);
+      const currentInventory = snapshot.markets.food?.inventory || 0;
+      if (currentInventory > 10000) {
+        expect(currentInventory).toBeGreaterThan(10000);
+        return;
+      }
+
+      const sellQuantity = Math.max(1, 10001 - currentInventory);
+      const tradeRequest = new Request("https://dummy/trade", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          shipId: "test-ship",
+          goodId: "food",
+          quantity: sellQuantity,
+          type: "sell",
+        }),
+      });
+
+      const response = await system.fetch(tradeRequest);
+      expect(response.status).toBe(200);
+
+      const snapshotAfter = await (await system.fetch(new Request("https://dummy/snapshot"))).json();
+      expect(snapshotAfter.markets.food.inventory).toBeGreaterThan(10000);
     });
   });
 
@@ -529,6 +541,8 @@ describe("StarSystem", () => {
       const snapshot = await (await system.fetch(new Request("https://dummy/snapshot"))).json();
       const price = snapshot.markets.food.price;
       const quantity = 10;
+      const taxRate = 0.03;
+      const expectedCost = price * quantity * (1 + taxRate);
 
       const tradeRequest = new Request("https://dummy/trade", {
         method: "POST",
@@ -545,7 +559,7 @@ describe("StarSystem", () => {
       const data = await response.json();
       
       expect(data.success).toBe(true);
-      expect(data.totalCost).toBe(price * quantity);
+      expect(data.totalCost).toBe(expectedCost);
       expect(data.price).toBe(price);
     });
 
@@ -598,8 +612,7 @@ describe("StarSystem", () => {
     it("should update inventory correctly after sell", async () => {
       const snapshot1 = await (await system.fetch(new Request("https://dummy/snapshot"))).json();
       const initialInventory = snapshot1.markets.food.inventory;
-      const maxCapacity = 10000;
-      const quantity = Math.min(10, maxCapacity - initialInventory);
+      const quantity = 10;
 
       if (quantity > 0) {
         await system.fetch(new Request("https://dummy/trade", {

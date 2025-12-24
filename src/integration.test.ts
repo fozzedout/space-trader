@@ -267,7 +267,8 @@ describe("Integration Tests", () => {
     const snapshot = await (await system1.fetch(new Request("https://dummy/snapshot"))).json();
     const price = snapshot.markets.food.price;
     const quantity = 5;
-    const expectedCost = price * quantity;
+    const taxRate = 0.03;
+    const expectedCost = price * quantity * (1 + taxRate);
 
     // Buy goods
     const buyResponse = await system1.fetch(new Request("https://dummy/trade", {
@@ -297,6 +298,7 @@ describe("Integration Tests", () => {
     const snapshot1 = await (await system1.fetch(new Request("https://dummy/snapshot"))).json();
     const price1 = snapshot1.markets.food.price;
     const quantity = 10;
+    const taxRate = 0.03;
 
     // Buy in system 1
     const buyResponse = await system1.fetch(new Request("https://dummy/trade", {
@@ -312,7 +314,7 @@ describe("Integration Tests", () => {
 
     expect(buyResponse.status).toBe(200);
     const buyData = await buyResponse.json();
-    expect(buyData.totalCost).toBe(price1 * quantity);
+    expect(buyData.totalCost).toBe(price1 * quantity * (1 + taxRate));
 
     // Travel to system 2
     await system2.fetch(new Request("https://dummy/arrival", {
@@ -355,6 +357,7 @@ describe("Integration Tests", () => {
   it("should handle insufficient credits scenario", async () => {
     const snapshot = await (await system1.fetch(new Request("https://dummy/snapshot"))).json();
     const price = snapshot.markets.food.price;
+    const taxRate = 0.03;
     const quantity = Math.ceil(100000 / price); // More than ship can afford
 
     const buyResponse = await system1.fetch(new Request("https://dummy/trade", {
@@ -381,6 +384,7 @@ describe("Integration Tests", () => {
   it("should handle multiple consecutive trades", async () => {
     const snapshot = await (await system1.fetch(new Request("https://dummy/snapshot"))).json();
     const price = snapshot.markets.food.price;
+    const taxRate = 0.03;
 
     // Make multiple small trades
     for (let i = 0; i < 3; i++) {
@@ -398,7 +402,7 @@ describe("Integration Tests", () => {
       expect(tradeResponse.status).toBe(200);
       const data = await tradeResponse.json();
       expect(data.success).toBe(true);
-      expect(data.totalCost).toBe(price);
+      expect(data.totalCost).toBe(price * (1 + taxRate));
     }
   });
 });

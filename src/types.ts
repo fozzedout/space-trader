@@ -58,6 +58,12 @@ export interface MarketState {
   consumption: number; // consumption rate (units per tick)
   price: number; // current market price
   inventory: number; // current inventory at station
+  request?: MarketRequest | null; // optional restock request with delivery bonus
+}
+
+export interface MarketRequest {
+  bonusPerUnit: number;
+  remainingUnits: number;
 }
 
 export type ShipPhase = 
@@ -107,10 +113,13 @@ export interface ShipState {
   originSystem: SystemId | null; // System ship departed from (for arrival metadata)
   originPriceInfo: Array<[GoodId, number]> | null; // Prices from origin system (for arrival effects)
   chosenDestinationSystemId: SystemId | null; // Planned profitable destination when cargo was purchased
+  navigationTargetSystemId: SystemId | null; // Long-range navigation target (multi-hop)
   expectedMarginAtChoiceTime: number | null; // Expected profit margin (%) when destination was chosen
+  expectedPurchasePriceAtChoiceTime: number | null; // Purchase price per unit used for expected margin calculation
   // Lifecycle tracking for NPC culling
   immobileTicks: number; // Consecutive ticks where trader cannot afford fuel to cheapest neighbor
-  lastSuccessfulTradeTick: number; // Last tick where a successful buy+sell cycle completed
+  lastSuccessfulTradeTick: number; // Last tick where a successful sell completed
+  lastSuccessfulTradeDecisionCount: number; // Decision count at last successful sell
   decisionCount: number; // Total number of trading decisions made (for stagnation tracking)
   lastCargoPurchaseTick: number | null; // Tick when cargo was last purchased (for max hold time)
 }

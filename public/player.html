@@ -324,6 +324,21 @@
             color: var(--text-primary);
             font-weight: bold;
         }
+        .market-request {
+            color: var(--accent);
+            font-weight: bold;
+        }
+        .request-reachable {
+            color: var(--text-primary);
+        }
+        .request-unreachable {
+            color: var(--text-dim);
+        }
+        .request-filters {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 10px;
+        }
         .price-high {
             color: var(--danger);
         }
@@ -752,6 +767,7 @@
                                     <th>Good</th>
                                     <th>Price</th>
                                     <th>Stock</th>
+                                    <th>Request</th>
                                 </tr>
                             </thead>
                             <tbody id="marketBody"></tbody>
@@ -775,6 +791,7 @@
             <div class="subtabs">
                 <button class="subtab active" data-subview="flight-status-panel">STATUS</button>
                 <button class="subtab" data-subview="flight-destination-panel">DESTINATION</button>
+                <button class="subtab" data-subview="flight-requests-panel">REQUESTS</button>
             </div>
             <div class="subview active" id="flight-status-panel">
                 <div class="panel">
@@ -795,6 +812,31 @@
                     <div class="flight-destination">Selected: <span id="selectedDestination">None</span></div>
                     <button class="btn" id="btnTravel" onclick="initiateTravel()">LAUNCH</button>
                     <div id="travelMessage"></div>
+                </div>
+            </div>
+            <div class="subview" id="flight-requests-panel">
+                <div class="panel scrollable">
+                    <div class="panel-title">📜 REQUEST BOARD</div>
+                    <div class="panel-scroll">
+                        <div class="request-filters">
+                            <button class="subtab active" id="requestScopeLocal" type="button">LOCAL</button>
+                            <button class="subtab" id="requestScopeGalaxy" type="button">GALAXY</button>
+                        </div>
+                        <div id="requestLoading" class="loading">Loading requests...</div>
+                        <table class="market-table hidden" id="requestTable">
+                            <thead>
+                                <tr>
+                                    <th>System</th>
+                                    <th>Good</th>
+                                    <th>Bonus</th>
+                                    <th>Remaining</th>
+                                    <th>Distance</th>
+                                </tr>
+                            </thead>
+                            <tbody id="requestBody"></tbody>
+                        </table>
+                        <div class="trade-status" id="requestRouteInfo">Select a request to see a route.</div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -850,6 +892,7 @@
                     <div class="trade-pill">Cargo <span id="tradeCargoSell">0/100</span></div>
                     <div class="trade-pill">Owned <span id="sellCargoQty">-</span></div>
                     <div class="trade-pill">Max Sell <span id="sellMax">-</span></div>
+                    <div class="trade-pill">Request <span id="sellRequest">-</span></div>
                 </div>
                 <div class="input-group">
                     <label>Good</label>
@@ -1037,15 +1080,22 @@
         let selectedDestinationDistance = null;
         let lastMaxBuy = 0;
         let lastMaxSell = 0;
+        let galaxyRequestsData = null;
+        let lastRequestFetch = 0;
+        const REQUEST_REFRESH_MS = 15000;
         let garageData = null;
         let lastShipPhase = null;
         let pendingArrivalUi = false;
+        let requestScope = 'local';
+        let selectedRequestPath = null;
+        let selectedRequestTarget = null;
 
         // Initialize
         document.addEventListener('DOMContentLoaded', async () => {
             applySystemTheme();
             setupNavigation();
             setupSubtabs();
+            setupRequestFilters();
             setupTradingListeners();
             setupGarageListeners();
             await resolvePlayerProfile();
@@ -1089,9 +1139,28 @@
                         container.querySelectorAll('.subview').forEach(subview => {
                             subview.classList.toggle('active', subview.id === targetId);
                         });
+                        if (targetId === 'flight-requests-panel') {
+                            void updateRequestBoard(true);
+                        }
                     });
                 });
             });
+        }
+
+        function setupRequestFilters() {
+            const localButton = document.getElementById('requestScopeLocal');
+            const galaxyButton = document.getElementById('requestScopeGalaxy');
+            if (!localButton || !galaxyButton) return;
+
+            const setScope = (scope) => {
+                requestScope = scope;
+                localButton.classList.toggle('active', scope === 'local');
+                galaxyButton.classList.toggle('active', scope === 'galaxy');
+                renderRequestBoard();
+            };
+
+            localButton.addEventListener('click', () => setScope('local'));
+            galaxyButton.addEventListener('click', () => setScope('galaxy'));
         }
 
         function normalizePlayerName(name) {
@@ -1276,6 +1345,12 @@
                     document.getElementById('sysId').textContent = '-';
                 }
 
+                if (selectedRequestPath && selectedRequestPath.length > 0) {
+                    if (selectedRequestPath[0] !== currentShipState.currentSystem) {
+                        clearRequestRoute();
+                    }
+                }
+
                 // Update flight view
                 updateFlightView();
 
@@ -1316,6 +1391,7 @@
                 // Update flight map
                 await ensureGalaxyMapData();
                 renderFlightMap();
+                await updateRequestBoard();
             } catch (error) {
                 console.error('System view error:', error);
             }
@@ -1342,16 +1418,200 @@
                 const row = document.createElement('tr');
                 const price = market.price || 0;
                 const inventory = market.inventory || 0;
+                const request = market.request;
+                const requestText = request && request.remainingUnits > 0
+                    ? `+${request.bonusPerUnit.toFixed(2)} (${Math.floor(request.remainingUnits).toLocaleString()})`
+                    : '-';
                 
                 row.innerHTML = `
                     <td>${goodId.toUpperCase()}</td>
                     <td class="price">${price.toFixed(2)} cr</td>
                     <td>${inventory}</td>
+                    <td class="market-request">${requestText}</td>
                 `;
                 row.dataset.goodId = goodId;
                 row.addEventListener('click', () => prefillTradeFromMarket(goodId));
                 tbody.appendChild(row);
             });
+        }
+
+        async function updateRequestBoard(force = false) {
+            const panel = document.getElementById('flight-requests-panel');
+            if (!force && (!panel || !panel.classList.contains('active'))) return;
+            const now = Date.now();
+            if (!force && now - lastRequestFetch < REQUEST_REFRESH_MS) {
+                renderRequestBoard();
+                return;
+            }
+
+            const loading = document.getElementById('requestLoading');
+            if (loading) {
+                loading.textContent = 'Loading requests...';
+                loading.classList.remove('hidden');
+            }
+
+            try {
+                const response = await fetch('/api/galaxy/requests');
+                if (!response.ok) throw new Error('Failed to fetch requests');
+                galaxyRequestsData = await response.json();
+                lastRequestFetch = now;
+            } catch (error) {
+                galaxyRequestsData = null;
+            }
+
+            renderRequestBoard();
+        }
+
+        function renderRequestBoard() {
+            const tbody = document.getElementById('requestBody');
+            const table = document.getElementById('requestTable');
+            const loading = document.getElementById('requestLoading');
+            const routeInfo = document.getElementById('requestRouteInfo');
+            if (!tbody || !table || !loading) return;
+
+            tbody.innerHTML = '';
+
+            const systems = galaxyRequestsData?.systems || [];
+            if (systems.length === 0) {
+                loading.textContent = 'No active requests';
+                loading.classList.remove('hidden');
+                table.classList.add('hidden');
+                if (routeInfo) {
+                    routeInfo.textContent = 'Select a request to see a route.';
+                }
+                return;
+            }
+
+            const currentX = currentSystemData?.state?.x;
+            const currentY = currentSystemData?.state?.y;
+
+            const rows = [];
+            systems.forEach(system => {
+                (system.requests || []).forEach(request => {
+                    const distance = Number.isFinite(currentX) && Number.isFinite(currentY)
+                        ? Math.hypot(system.x - currentX, system.y - currentY)
+                        : null;
+                    const reachable = distance !== null ? distance <= FLIGHT_RANGE_LY : false;
+                    if (requestScope === 'local' && !reachable) {
+                        return;
+                    }
+                    rows.push({
+                        systemId: system.id,
+                        goodId: request.goodId,
+                        bonusPerUnit: request.bonusPerUnit || 0,
+                        remainingUnits: request.remainingUnits || 0,
+                        distance,
+                        reachable
+                    });
+                });
+            });
+
+            rows.sort((a, b) => {
+                if (a.reachable !== b.reachable) return a.reachable ? -1 : 1;
+                if (a.distance !== null && b.distance !== null) return a.distance - b.distance;
+                return b.bonusPerUnit - a.bonusPerUnit;
+            });
+
+            loading.classList.add('hidden');
+            table.classList.remove('hidden');
+
+            rows.forEach(rowData => {
+                const row = document.createElement('tr');
+                row.className = rowData.reachable ? 'request-reachable' : 'request-unreachable';
+                const distanceText = rowData.distance !== null ? `${rowData.distance.toFixed(2)} LY` : '-';
+                row.innerHTML = `
+                    <td>${rowData.systemId}</td>
+                    <td>${rowData.goodId.toUpperCase()}</td>
+                    <td class="market-request">+${rowData.bonusPerUnit.toFixed(2)}</td>
+                    <td>${Math.floor(rowData.remainingUnits).toLocaleString()}</td>
+                    <td>${distanceText}</td>
+                `;
+                row.addEventListener('click', () => {
+                    void selectRequestRoute(rowData.systemId, rowData.goodId);
+                });
+                tbody.appendChild(row);
+            });
+        }
+
+        async function selectRequestRoute(systemId, goodId) {
+            const routeInfo = document.getElementById('requestRouteInfo');
+            await ensureGalaxyMapData();
+            const currentId = currentShipState?.currentSystem;
+            if (currentId === null || currentId === undefined || !galaxyMapData) {
+                if (routeInfo) {
+                    routeInfo.textContent = 'Route unavailable.';
+                }
+                return;
+            }
+
+            selectedRequestTarget = { systemId, goodId };
+            selectedRequestPath = findRoutePath(currentId, systemId, galaxyMapData, FLIGHT_RANGE_LY);
+
+            if (routeInfo) {
+                if (!selectedRequestPath || selectedRequestPath.length === 0) {
+                    routeInfo.textContent = `No route to System ${systemId} within range.`;
+                    routeInfo.onclick = null;
+                } else {
+                    const routeLabel = selectedRequestPath.join(' -> ');
+                    routeInfo.textContent = `Route to System ${systemId} (${goodId.toUpperCase()}): ${routeLabel} (click to clear)`;
+                    routeInfo.onclick = clearRequestRoute;
+                }
+            }
+
+            renderFlightMap();
+        }
+
+        function clearRequestRoute() {
+            selectedRequestPath = null;
+            selectedRequestTarget = null;
+            const routeInfo = document.getElementById('requestRouteInfo');
+            if (routeInfo) {
+                routeInfo.textContent = 'Select a request to see a route.';
+                routeInfo.onclick = null;
+            }
+            renderFlightMap();
+        }
+
+        function findRoutePath(startId, targetId, systems, maxHopDistance) {
+            if (startId === targetId) return [startId];
+            const systemMap = new Map(systems.map(sys => [sys.id, sys]));
+            if (!systemMap.has(startId) || !systemMap.has(targetId)) return null;
+
+            const ids = systems.map(sys => sys.id);
+            const visited = new Set([startId]);
+            const queue = [startId];
+            const prev = new Map();
+
+            while (queue.length > 0) {
+                const current = queue.shift();
+                if (current === undefined) break;
+                if (current === targetId) break;
+                const currentSystem = systemMap.get(current);
+                if (!currentSystem) continue;
+
+                for (const neighborId of ids) {
+                    if (visited.has(neighborId)) continue;
+                    const neighbor = systemMap.get(neighborId);
+                    if (!neighbor) continue;
+                    const distance = Math.hypot(neighbor.x - currentSystem.x, neighbor.y - currentSystem.y);
+                    if (distance <= maxHopDistance) {
+                        visited.add(neighborId);
+                        prev.set(neighborId, current);
+                        queue.push(neighborId);
+                    }
+                }
+            }
+
+            if (!visited.has(targetId)) return null;
+
+            const path = [];
+            let current = targetId;
+            while (current !== undefined) {
+                path.push(current);
+                if (current === startId) break;
+                current = prev.get(current);
+            }
+            return path.reverse();
         }
 
         function updateCargoDisplay() {
@@ -2146,8 +2406,9 @@
                 });
 
                 if (response.ok && data.success) {
+                    const bonusNote = data.bonusValue ? ` (bonus ${data.bonusValue.toFixed(2)} cr)` : '';
                     setTradeStatus('sellStatus', 'Sell completed.', 'success');
-                    showMessage('success', `Sold ${quantity} ${goodId} for ${data.totalValue?.toFixed(2) || 'N/A'} cr`, messageDiv);
+                    showMessage('success', `Sold ${quantity} ${goodId} for ${data.totalValue?.toFixed(2) || 'N/A'} cr${bonusNote}`, messageDiv);
                     if (data.ship) {
                         currentShipState = data.ship;
                         updateHeaderDisplay();
@@ -2307,7 +2568,13 @@
                 return distance <= FLIGHT_RANGE_LY;
             });
 
-            if (selectedDestination !== null && selectedDestination !== undefined) {
+            const showRoute = Array.isArray(selectedRequestPath) && selectedRequestPath.length > 0;
+            if (showRoute) {
+                const pathSet = new Set(selectedRequestPath);
+                filteredSystems = systems.filter(sys => pathSet.has(sys.id));
+            }
+
+            if (!showRoute && selectedDestination !== null && selectedDestination !== undefined) {
                 const stillReachable = filteredSystems.some(sys => sys.id === selectedDestination);
                 if (!stillReachable) {
                     selectedDestination = null;
@@ -2318,7 +2585,8 @@
             }
 
             if (filteredSystems.length === 0) {
-                svg.innerHTML = '<text x="50%" y="50%" text-anchor="middle" fill="#3b8c6b" font-size="12">No systems in range</text>';
+                const emptyLabel = showRoute ? 'No route nodes available' : 'No systems in range';
+                svg.innerHTML = `<text x="50%" y="50%" text-anchor="middle" fill="#3b8c6b" font-size="12">${emptyLabel}</text>`;
                 return;
             }
 
@@ -2350,6 +2618,25 @@
                 const screenY = centerY + (wy - offsetY) * scale;
                 return { x: screenX, y: screenY };
             };
+
+            if (showRoute && selectedRequestPath.length > 1) {
+                const points = selectedRequestPath.map((id) => {
+                    const sys = systems.find(item => item.id === id);
+                    if (!sys) return null;
+                    const pos = worldToScreen(sys.x, sys.y);
+                    return `${pos.x},${pos.y}`;
+                }).filter(Boolean);
+
+                if (points.length > 1) {
+                    const routeLine = document.createElementNS('http://www.w3.org/2000/svg', 'polyline');
+                    routeLine.setAttribute('points', points.join(' '));
+                    routeLine.setAttribute('fill', 'none');
+                    routeLine.setAttribute('stroke', '#2dd4bf');
+                    routeLine.setAttribute('stroke-width', '2');
+                    routeLine.setAttribute('stroke-dasharray', '6 4');
+                    svg.appendChild(routeLine);
+                }
+            }
 
             filteredSystems.forEach((sys) => {
                 const screenPos = worldToScreen(sys.x, sys.y);
@@ -2554,10 +2841,12 @@
             const cargo = cargoOverride ?? getCargoState().cargo;
             let maxSell = 0;
             let owned = '-';
+            let requestText = '-';
 
             if (goodId && currentSystemData?.markets[goodId]) {
                 const price = currentSystemData.markets[goodId].price;
                 const cargoQty = cargo[goodId] || 0;
+                const request = currentSystemData.markets[goodId].request;
                 maxSell = cargoQty;
                 owned = cargoQty.toLocaleString();
                 if (maxSell === 0) {
@@ -2566,7 +2855,16 @@
                     quantity = maxSell;
                 }
                 setSellQuantity(quantity);
-                const total = price * quantity * 0.95; // After 5% tax
+                const bonusUnits = request && request.remainingUnits > 0
+                    ? Math.min(quantity, request.remainingUnits)
+                    : 0;
+                const bonusValue = request && bonusUnits > 0
+                    ? bonusUnits * request.bonusPerUnit
+                    : 0;
+                if (request && request.remainingUnits > 0) {
+                    requestText = `+${request.bonusPerUnit.toFixed(2)} (${bonusUnits})`;
+                }
+                const total = price * quantity * 0.95 + bonusValue; // After 5% tax + request bonus
                 document.getElementById('sellTotal').textContent = `${total.toFixed(2)} cr`;
             } else {
                 setSellQuantity(0);
@@ -2576,6 +2874,7 @@
             lastMaxSell = maxSell;
             document.getElementById('sellCargoQty').textContent = owned;
             document.getElementById('sellMax').textContent = maxSell.toLocaleString();
+            document.getElementById('sellRequest').textContent = requestText;
         }
 
         function setTradePending(isPending, type) {

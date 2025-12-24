@@ -35,7 +35,7 @@ describe("Ship", () => {
       expect(data.success).toBe(true);
     });
 
-    it("should not allow double initialization", async () => {
+    it("should allow re-initialization", async () => {
       const initData = {
         id: "test-ship",
         name: "Test Ship",
@@ -59,7 +59,7 @@ describe("Ship", () => {
       });
       
       const secondResponse = await ship.fetch(initRequest2);
-      expect(secondResponse.status).toBe(400);
+      expect(secondResponse.status).toBe(200);
     });
 
     it("should set initial credits", async () => {
@@ -170,10 +170,10 @@ describe("Ship", () => {
       await ship.fetch(initRequest);
     });
 
-    it("should have initial credits of 100", async () => {
+    it("should have initial credits of 500", async () => {
       const stateResponse = await ship.fetch(new Request("https://dummy/state"));
       const state = await stateResponse.json();
-      expect(state.credits).toBe(100);
+      expect(state.credits).toBe(500);
     });
 
     it("should track credits correctly after multiple operations", async () => {
@@ -366,4 +366,3 @@ describe("Ship", () => {
     });
   });
 });
-
