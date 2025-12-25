@@ -3069,6 +3069,178 @@ async function handleGalaxyRequests(
   }, 200, corsHeaders);
 }
 
+async function handleGalaxyMarkets(
+  corsHeaders: Record<string, string>
+): Promise<Response> {
+  const allGoodIds = getAllGoodIds();
+  const requestRegistry = getRequestRegistry();
+  const requestMap = new Map<SystemId, Map<GoodId, { bonusPerUnit: number; remainingUnits: number; price: number }>>();
+  
+  // Build request map for quick lookup
+  for (const entry of requestRegistry) {
+    const goodMap = new Map();
+    for (const req of entry.requests) {
+      goodMap.set(req.goodId, {
+        bonusPerUnit: req.bonusPerUnit,
+        remainingUnits: req.remainingUnits,
+        price: req.price,
+      });
+    }
+    requestMap.set(entry.systemId, goodMap);
+  }
+
+  const systems: Array<{
+    id: SystemId;
+    markets: Record<string, {
+      goodId: GoodId;
+      price: number;
+      basePrice: number;
+      inventory: number;
+      production: number;
+      consumption: number;
+      expectedStock: number;
+      stockRatio: number;
+      priceRatio: number;
+      hasRequest: boolean;
+      bonusPerUnit?: number;
+      remainingUnits?: number;
+    }>;
+  }> = [];
+
+  // Sample systems (limit to first 100 for performance, or all if smaller)
+  const sampleSize = Math.min(100, GALAXY_SIZE);
+  for (let i = 0; i < sampleSize; i++) {
+    const systemId = i as SystemId;
+    try {
+      const system = localEnv.STAR_SYSTEM.get(localEnv.STAR_SYSTEM.idFromName(`system-${systemId}`));
+      const snapshotResponse = await system.fetch(new Request("https://dummy/snapshot"));
+      const snapshot = await snapshotResponse.json() as {
+        state: any;
+        markets: Record<string, {
+          price: number;
+          basePrice?: number;
+          inventory: number;
+          production: number;
+          consumption: number;
+        }>;
+      };
+
+      const markets: Record<string, any> = {};
+      const systemRequests = requestMap.get(systemId);
+
+      for (const goodId of allGoodIds) {
+        const market = snapshot.markets[goodId];
+        if (!market) continue;
+
+        const good = getGoodDefinition(goodId);
+        if (!good) continue;
+
+        const basePrice = market.basePrice || good.basePrice;
+        const expectedStock = Math.max(1, (market.production + market.consumption) * 10);
+        const stockRatio = expectedStock > 0 ? market.inventory / expectedStock : 0;
+        const priceRatio = basePrice > 0 ? market.price / basePrice : 1;
+        const request = systemRequests?.get(goodId);
+
+        markets[goodId] = {
+          goodId,
+          price: market.price,
+          basePrice,
+          inventory: market.inventory,
+          production: market.production,
+          consumption: market.consumption,
+          expectedStock,
+          stockRatio,
+          priceRatio,
+          hasRequest: !!request,
+          bonusPerUnit: request?.bonusPerUnit,
+          remainingUnits: request?.remainingUnits,
+        };
+      }
+
+      systems.push({
+        id: systemId,
+        markets,
+      });
+    } catch (error) {
+      // Skip systems that can't be loaded
+      console.warn(`Failed to load system ${systemId} for market overview:`, error);
+    }
+  }
+
+  // Aggregate statistics by good
+  const goodStats: Record<string, {
+    goodId: GoodId;
+    name: string;
+    basePrice: number;
+    avgPrice: number;
+    avgPriceRatio: number;
+    avgStockRatio: number;
+    lowStockCount: number;
+    requestCount: number;
+    totalRemainingUnits: number;
+    avgBonusPerUnit: number;
+    systemsWithLowStock: SystemId[];
+  }> = {};
+
+  for (const goodId of allGoodIds) {
+    const good = getGoodDefinition(goodId);
+    if (!good) continue;
+
+    let totalPrice = 0;
+    let totalPriceRatio = 0;
+    let totalStockRatio = 0;
+    let count = 0;
+    let lowStockCount = 0;
+    let requestCount = 0;
+    let totalRemainingUnits = 0;
+    let totalBonus = 0;
+    const systemsWithLowStock: SystemId[] = [];
+
+    for (const system of systems) {
+      const market = system.markets[goodId];
+      if (!market) continue;
+
+      count++;
+      totalPrice += market.price;
+      totalPriceRatio += market.priceRatio;
+      totalStockRatio += market.stockRatio;
+
+      if (market.stockRatio < 0.5) {
+        lowStockCount++;
+        systemsWithLowStock.push(system.id);
+      }
+
+      if (market.hasRequest) {
+        requestCount++;
+        totalRemainingUnits += market.remainingUnits || 0;
+        totalBonus += market.bonusPerUnit || 0;
+      }
+    }
+
+    goodStats[goodId] = {
+      goodId,
+      name: good.name,
+      basePrice: good.basePrice,
+      avgPrice: count > 0 ? totalPrice / count : 0,
+      avgPriceRatio: count > 0 ? totalPriceRatio / count : 1,
+      avgStockRatio: count > 0 ? totalStockRatio / count : 1,
+      lowStockCount,
+      requestCount,
+      totalRemainingUnits,
+      avgBonusPerUnit: requestCount > 0 ? totalBonus / requestCount : 0,
+      systemsWithLowStock,
+    };
+  }
+
+  return jsonResponse({
+    systems,
+    goodStats,
+    timestamp: Date.now(),
+    sampleSize,
+    totalSystems: GALAXY_SIZE,
+  }, 200, corsHeaders);
+}
+
 async function handleSystemMonitor(
   systemId: SystemId,
   corsHeaders: Record<string, string>
@@ -3253,6 +3425,25 @@ async function serveLeaderboardInterface(): Promise<Response> {
 
   // Fallback: return error if file not found
   return new Response("Leaderboard interface not found", {
+    status: 404,
+    headers: { "Content-Type": "text/plain" },
+  });
+}
+
+async function serveMarketsInterface(): Promise<Response> {
+  const marketsHtml = await fs.promises.readFile(
+    pathModule.join(process.cwd(), "public", "markets.html"),
+    "utf-8"
+  ).catch(() => null);
+
+  if (marketsHtml) {
+    return new Response(marketsHtml, {
+      headers: { "Content-Type": "text/html" },
+    });
+  }
+
+  // Fallback: return error if file not found
+  return new Response("Markets interface not found", {
     status: 404,
     headers: { "Content-Type": "text/plain" },
   });
@@ -3482,6 +3673,8 @@ function clearPlayerLogs(): void {
       response = await handleGalaxyMap(corsHeaders);
     } else if (path === "/api/galaxy/requests" && method === "GET") {
       response = await handleGalaxyRequests(corsHeaders);
+    } else if (path === "/api/galaxy/markets" && method === "GET") {
+      response = await handleGalaxyMarkets(corsHeaders);
     } else if (path === "/api/player" && method === "GET") {
       const rawName = url.searchParams.get("name") || "";
       const name = normalizePlayerName(rawName);
@@ -3842,6 +4035,8 @@ function clearPlayerLogs(): void {
       response = await serveMonitorInterface();
     } else if (path === "/leaderboard" || path === "/leaderboard.html") {
       response = await serveLeaderboardInterface();
+    } else if (path === "/markets" || path === "/markets.html") {
+      response = await serveMarketsInterface();
     } else {
       response = jsonResponse({ error: "Not found" }, 404, corsHeaders);
     }

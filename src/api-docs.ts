@@ -139,6 +139,60 @@ export const API_DOCUMENTATION: Record<string, ApiEndpoint[]> = {
     },
     {
       method: "GET",
+      path: "/api/galaxy/markets",
+      description: "Returns a comprehensive galactic market overview showing stock levels, prices, and active market requests across all systems. Aggregates market data from sampled systems (up to 100) including inventory ratios, price deviations from base prices, and incentive/request information. Useful for monitoring pricing and incentive system health at a galactic level.",
+      response: {
+        description: "Returns market data aggregated by good and system, including statistics on stock levels, prices, and active requests.",
+        example: {
+          systems: [
+            {
+              id: 0,
+              markets: {
+                food: {
+                  goodId: "food",
+                  price: 12.5,
+                  basePrice: 10,
+                  inventory: 500,
+                  production: 5.0,
+                  consumption: 5.5,
+                  expectedStock: 105,
+                  stockRatio: 4.76,
+                  priceRatio: 1.25,
+                  hasRequest: false,
+                },
+              },
+            },
+          ],
+          goodStats: {
+            food: {
+              goodId: "food",
+              name: "Food",
+              basePrice: 10,
+              avgPrice: 12.3,
+              avgPriceRatio: 1.23,
+              avgStockRatio: 0.85,
+              lowStockCount: 15,
+              requestCount: 8,
+              totalRemainingUnits: 5000,
+              avgBonusPerUnit: 2.5,
+              systemsWithLowStock: [0, 1, 2],
+            },
+          },
+          timestamp: 1234567890000,
+          sampleSize: 100,
+          totalSystems: 256,
+        },
+      },
+      notes: [
+        "Samples up to 100 systems for performance (or all systems if galaxy is smaller).",
+        "Stock ratio = inventory / expected stock (where expected stock = (production + consumption) * 10).",
+        "Price ratio = current price / base price.",
+        "Active requests indicate systems with low stock that are offering bonuses to incentivize traders.",
+        "Useful for monitoring whether pricing and incentive changes are working effectively.",
+      ],
+    },
+    {
+      method: "GET",
       path: "/api/galaxy-health",
       description: "Returns comprehensive galactic health metrics including ship spawn/removal rates, trade quality analysis, population health, and overall system status. Tracks ships being spawned vs removed, analyzes trade logs to determine good vs bad trades, and provides health status (healthy/warning/critical) with specific issues identified.",
       response: {

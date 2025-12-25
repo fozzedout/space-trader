@@ -1,0 +1,478 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Galactic Market Overview - Space Trader</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg: #0b1016;
+            --bg-elevated: #121a24;
+            --panel: #0f1724;
+            --panel-border: rgba(45, 212, 191, 0.3);
+            --text: #e2e8f0;
+            --muted: #93a4b7;
+            --accent: #2dd4bf;
+            --warning: #f59e0b;
+            --danger: #f87171;
+            --success: #10b981;
+            --info: #60a5fa;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: "Space Grotesk", sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            padding: 20px;
+            min-height: 100vh;
+        }
+
+        .container {
+            max-width: 1800px;
+            margin: 0 auto;
+        }
+
+        .header {
+            background: var(--bg-elevated);
+            border: 1px solid var(--panel-border);
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+
+        .header h1 {
+            font-size: 28px;
+            margin-bottom: 8px;
+        }
+
+        .header p {
+            color: var(--muted);
+            font-size: 14px;
+        }
+
+        .meta-row {
+            display: flex;
+            gap: 20px;
+            margin-top: 12px;
+            font-size: 13px;
+            color: var(--muted);
+        }
+
+        .panel {
+            background: var(--panel);
+            border: 1px solid var(--panel-border);
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+
+        .panel h2 {
+            font-size: 20px;
+            margin-bottom: 16px;
+        }
+
+        .good-stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+            gap: 16px;
+            margin-bottom: 20px;
+        }
+
+        .good-card {
+            background: var(--bg-elevated);
+            border: 1px solid var(--panel-border);
+            border-radius: 8px;
+            padding: 16px;
+        }
+
+        .good-card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 12px;
+        }
+
+        .good-name {
+            font-weight: 600;
+            font-size: 16px;
+        }
+
+        .good-base-price {
+            color: var(--muted);
+            font-size: 13px;
+        }
+
+        .stat-row {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 8px;
+            font-size: 13px;
+        }
+
+        .stat-label {
+            color: var(--muted);
+        }
+
+        .stat-value {
+            font-weight: 500;
+        }
+
+        .stock-indicator {
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            margin-right: 6px;
+        }
+
+        .stock-low { background: var(--danger); }
+        .stock-medium { background: var(--warning); }
+        .stock-high { background: var(--success); }
+
+        .price-indicator {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: 600;
+        }
+
+        .price-low { background: rgba(16, 185, 129, 0.2); color: var(--success); }
+        .price-normal { background: rgba(147, 164, 183, 0.2); color: var(--muted); }
+        .price-high { background: rgba(248, 113, 113, 0.2); color: var(--danger); }
+
+        .request-badge {
+            display: inline-block;
+            background: rgba(45, 212, 191, 0.2);
+            color: var(--accent);
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: 600;
+            margin-left: 8px;
+        }
+
+        .heatmap-container {
+            overflow-x: auto;
+            margin-top: 20px;
+        }
+
+        .heatmap {
+            border-collapse: collapse;
+            width: 100%;
+            font-size: 11px;
+        }
+
+        .heatmap th {
+            background: var(--bg-elevated);
+            padding: 8px;
+            text-align: left;
+            position: sticky;
+            left: 0;
+            z-index: 2;
+            border: 1px solid var(--panel-border);
+        }
+
+        .heatmap td {
+            padding: 6px 8px;
+            border: 1px solid var(--panel-border);
+            text-align: center;
+            min-width: 80px;
+        }
+
+        .heatmap-cell {
+            padding: 4px;
+            border-radius: 4px;
+        }
+
+        .cell-stock-0 { background: rgba(248, 113, 113, 0.3); }
+        .cell-stock-1 { background: rgba(248, 113, 113, 0.2); }
+        .cell-stock-2 { background: rgba(245, 158, 11, 0.2); }
+        .cell-stock-3 { background: rgba(16, 185, 129, 0.2); }
+        .cell-stock-4 { background: rgba(16, 185, 129, 0.3); }
+
+        .cell-price-low { color: var(--success); }
+        .cell-price-high { color: var(--danger); }
+
+        .request-indicator {
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--accent);
+            margin-left: 4px;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: var(--muted);
+        }
+
+        .error {
+            text-align: center;
+            padding: 40px;
+            color: var(--danger);
+        }
+
+        .summary-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 16px;
+            margin-bottom: 20px;
+        }
+
+        .summary-card {
+            background: var(--bg-elevated);
+            border: 1px solid var(--panel-border);
+            border-radius: 8px;
+            padding: 16px;
+            text-align: center;
+        }
+
+        .summary-value {
+            font-size: 32px;
+            font-weight: 700;
+            margin-bottom: 4px;
+        }
+
+        .summary-label {
+            color: var(--muted);
+            font-size: 13px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Galactic Market Overview</h1>
+            <p>Pricing and incentive system health monitoring</p>
+            <div class="meta-row">
+                <div id="lastUpdated">Last update: --</div>
+                <div>Auto refresh: 30s</div>
+            </div>
+        </div>
+
+        <div id="summary" class="panel" style="display: none;">
+            <h2>Summary</h2>
+            <div class="summary-grid" id="summaryGrid"></div>
+        </div>
+
+        <div id="goodStats" class="panel" style="display: none;">
+            <h2>Good Statistics</h2>
+            <div class="good-stats" id="goodStatsGrid"></div>
+        </div>
+
+        <div id="heatmap" class="panel" style="display: none;">
+            <h2>Stock Levels Heatmap</h2>
+            <p style="color: var(--muted); font-size: 13px; margin-bottom: 16px;">
+                Shows stock ratio (inventory / expected stock). Darker red = lower stock, darker green = higher stock.
+                <span class="request-indicator"></span> = Active request/incentive
+            </p>
+            <div class="heatmap-container">
+                <table class="heatmap" id="heatmapTable"></table>
+            </div>
+        </div>
+
+        <div id="loading" class="loading">Loading market data...</div>
+        <div id="error" class="error" style="display: none;"></div>
+    </div>
+
+    <script>
+        const API_BASE = window.location.origin;
+
+        let refreshInterval;
+
+        async function fetchMarketData() {
+            try {
+                const response = await fetch(`${API_BASE}/api/galaxy/markets`);
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                const data = await response.json();
+                renderData(data);
+                document.getElementById('loading').style.display = 'none';
+                document.getElementById('error').style.display = 'none';
+                document.getElementById('summary').style.display = 'block';
+                document.getElementById('goodStats').style.display = 'block';
+                document.getElementById('heatmap').style.display = 'block';
+                updateLastUpdated();
+            } catch (error) {
+                document.getElementById('loading').style.display = 'none';
+                document.getElementById('error').style.display = 'block';
+                document.getElementById('error').textContent = `Error: ${error.message}`;
+            }
+        }
+
+        function updateLastUpdated() {
+            const now = new Date();
+            document.getElementById('lastUpdated').textContent = 
+                `Last update: ${now.toLocaleTimeString()}`;
+        }
+
+        function renderData(data) {
+            renderSummary(data);
+            renderGoodStats(data.goodStats);
+            renderHeatmap(data);
+        }
+
+        function renderSummary(data) {
+            const goodStats = data.goodStats;
+            const totalLowStock = Object.values(goodStats).reduce((sum, g) => sum + g.lowStockCount, 0);
+            const totalRequests = Object.values(goodStats).reduce((sum, g) => sum + g.requestCount, 0);
+            const totalRemaining = Object.values(goodStats).reduce((sum, g) => sum + g.totalRemainingUnits, 0);
+            const avgStockRatio = Object.values(goodStats).reduce((sum, g) => sum + g.avgStockRatio, 0) / Object.keys(goodStats).length;
+
+            const grid = document.getElementById('summaryGrid');
+            grid.innerHTML = `
+                <div class="summary-card">
+                    <div class="summary-value">${data.sampleSize}</div>
+                    <div class="summary-label">Systems Sampled</div>
+                </div>
+                <div class="summary-card">
+                    <div class="summary-value">${totalLowStock}</div>
+                    <div class="summary-label">Low Stock Markets</div>
+                </div>
+                <div class="summary-card">
+                    <div class="summary-value">${totalRequests}</div>
+                    <div class="summary-label">Active Requests</div>
+                </div>
+                <div class="summary-card">
+                    <div class="summary-value">${totalRemaining.toLocaleString()}</div>
+                    <div class="summary-label">Units Needed</div>
+                </div>
+                <div class="summary-card">
+                    <div class="summary-value">${(avgStockRatio * 100).toFixed(1)}%</div>
+                    <div class="summary-label">Avg Stock Ratio</div>
+                </div>
+            `;
+        }
+
+        function renderGoodStats(goodStats) {
+            const grid = document.getElementById('goodStatsGrid');
+            grid.innerHTML = '';
+
+            const sorted = Object.values(goodStats).sort((a, b) => a.basePrice - b.basePrice);
+
+            for (const stat of sorted) {
+                const stockClass = stat.avgStockRatio < 0.3 ? 'stock-low' : 
+                                  stat.avgStockRatio < 0.7 ? 'stock-medium' : 'stock-high';
+                const priceClass = stat.avgPriceRatio < 0.9 ? 'price-low' :
+                                  stat.avgPriceRatio > 1.1 ? 'price-high' : 'price-normal';
+
+                const card = document.createElement('div');
+                card.className = 'good-card';
+                card.innerHTML = `
+                    <div class="good-card-header">
+                        <div>
+                            <span class="good-name">${stat.name}</span>
+                            ${stat.requestCount > 0 ? `<span class="request-badge">${stat.requestCount} requests</span>` : ''}
+                        </div>
+                        <div class="good-base-price">Base: ${stat.basePrice}cr</div>
+                    </div>
+                    <div class="stat-row">
+                        <span class="stat-label">Avg Stock Ratio</span>
+                        <span class="stat-value">
+                            <span class="stock-indicator ${stockClass}"></span>
+                            ${(stat.avgStockRatio * 100).toFixed(1)}%
+                        </span>
+                    </div>
+                    <div class="stat-row">
+                        <span class="stat-label">Avg Price</span>
+                        <span class="stat-value">
+                            <span class="price-indicator ${priceClass}">${stat.avgPrice.toFixed(1)}cr</span>
+                            (${(stat.avgPriceRatio * 100).toFixed(0)}% of base)
+                        </span>
+                    </div>
+                    <div class="stat-row">
+                        <span class="stat-label">Low Stock Systems</span>
+                        <span class="stat-value">${stat.lowStockCount}</span>
+                    </div>
+                    ${stat.requestCount > 0 ? `
+                    <div class="stat-row">
+                        <span class="stat-label">Avg Bonus/Unit</span>
+                        <span class="stat-value">${stat.avgBonusPerUnit.toFixed(1)}cr</span>
+                    </div>
+                    <div class="stat-row">
+                        <span class="stat-label">Total Units Needed</span>
+                        <span class="stat-value">${stat.totalRemainingUnits.toLocaleString()}</span>
+                    </div>
+                    ` : ''}
+                `;
+                grid.appendChild(card);
+            }
+        }
+
+        function renderHeatmap(data) {
+            const table = document.getElementById('heatmapTable');
+            const goodStats = data.goodStats;
+            const systems = data.systems;
+            const sortedGoods = Object.values(goodStats).sort((a, b) => a.basePrice - b.basePrice);
+
+            // Build header
+            let html = '<thead><tr><th>System</th>';
+            for (const good of sortedGoods) {
+                html += `<th>${good.name}</th>`;
+            }
+            html += '</tr></thead><tbody>';
+
+            // Build rows
+            for (const system of systems) {
+                html += `<tr><th>${system.id}</th>`;
+                for (const good of sortedGoods) {
+                    const market = system.markets[good.goodId];
+                    if (!market) {
+                        html += '<td>-</td>';
+                        continue;
+                    }
+
+                    const stockRatio = market.stockRatio;
+                    let stockClass = 'cell-stock-2';
+                    if (stockRatio < 0.2) stockClass = 'cell-stock-0';
+                    else if (stockRatio < 0.5) stockClass = 'cell-stock-1';
+                    else if (stockRatio < 0.8) stockClass = 'cell-stock-2';
+                    else if (stockRatio < 1.2) stockClass = 'cell-stock-3';
+                    else stockClass = 'cell-stock-4';
+
+                    const priceClass = market.priceRatio < 0.9 ? 'cell-price-low' :
+                                      market.priceRatio > 1.1 ? 'cell-price-high' : '';
+
+                    const requestIndicator = market.hasRequest ? '<span class="request-indicator"></span>' : '';
+
+                    html += `<td class="${stockClass}">
+                        <div class="heatmap-cell ${priceClass}">
+                            ${(stockRatio * 100).toFixed(0)}%${requestIndicator}
+                            <div style="font-size: 9px; color: var(--muted); margin-top: 2px;">
+                                ${market.price.toFixed(0)}cr
+                            </div>
+                        </div>
+                    </td>`;
+                }
+                html += '</tr>';
+            }
+
+            html += '</tbody>';
+            table.innerHTML = html;
+        }
+
+        // Initial load
+        fetchMarketData();
+
+        // Auto-refresh every 30 seconds
+        refreshInterval = setInterval(fetchMarketData, 30000);
+
+        // Cleanup on page unload
+        window.addEventListener('beforeunload', () => {
+            if (refreshInterval) clearInterval(refreshInterval);
+        });
+    </script>
+</body>
+</html>
+
