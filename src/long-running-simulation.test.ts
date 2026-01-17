@@ -15,7 +15,7 @@ import { describe, it, expect, beforeEach } from "vitest";
 import { StarSystem } from "./star-system";
 import { Ship } from "./ship";
 import { MockDurableObjectState, createMockEnv } from "./test-utils/mocks";
-import { SystemId, TechLevel, GovernmentType, WorldType } from "./types";
+import { SystemId, TechLevel, WorldType } from "./types";
 
 describe("Long-Running 10-Minute Simulation", () => {
   let system1: StarSystem;
@@ -36,33 +36,23 @@ describe("Long-Running 10-Minute Simulation", () => {
     mockEnv.STAR_SYSTEM.set(mockEnv.STAR_SYSTEM.idFromName("system-2"), system2);
 
     // Initialize systems
-    await system1.fetch(new Request("https://dummy/initialize", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        id: 1 as SystemId,
-        name: "System 1",
-        population: 50,
-        techLevel: TechLevel.INDUSTRIAL,
-        worldType: WorldType.INDUSTRIAL,
-        government: GovernmentType.DEMOCRACY,
-        seed: "sim-system-1",
-      }),
-    }));
+    await system1.initialize({
+      id: 1 as SystemId,
+      name: "System 1",
+      population: 50,
+      techLevel: TechLevel.INDUSTRIAL,
+      worldType: WorldType.INDUSTRIAL,
+      seed: "sim-system-1",
+    });
 
-    await system2.fetch(new Request("https://dummy/initialize", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        id: 2 as SystemId,
-        name: "System 2",
-        population: 30,
-        techLevel: TechLevel.POST_INDUSTRIAL,
-        worldType: WorldType.HIGH_TECH,
-        government: GovernmentType.CORPORATE,
-        seed: "sim-system-2",
-      }),
-    }));
+    await system2.initialize({
+      id: 2 as SystemId,
+      name: "System 2",
+      population: 30,
+      techLevel: TechLevel.POST_INDUSTRIAL,
+      worldType: WorldType.HIGH_TECH,
+      seed: "sim-system-2",
+    });
 
     // Create NPC ships
     npcShips = [];
@@ -71,32 +61,24 @@ describe("Long-Running 10-Minute Simulation", () => {
       const ship = new Ship(shipState, mockEnv);
       mockEnv.SHIP.set(mockEnv.SHIP.idFromName(`npc-${i}`), ship);
 
-      await ship.fetch(new Request("https://dummy/initialize", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          id: `npc-${i}`,
-          name: `NPC Trader ${i}`,
-          systemId: (i % 2 === 0 ? 1 : 2) as SystemId,
-          seed: `npc-seed-${i}`,
-          isNPC: true,
-        }),
-      }));
+      await ship.initialize({
+        id: `npc-${i}`,
+        name: `NPC Trader ${i}`,
+        systemId: (i % 2 === 0 ? 1 : 2) as SystemId,
+        seed: `npc-seed-${i}`,
+        isNPC: true,
+      });
 
       // Register ships in their systems
       const system = i % 2 === 0 ? system1 : system2;
-      await system.fetch(new Request("https://dummy/arrival", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          timestamp: Date.now(),
-          shipId: `npc-${i}`,
-          fromSystem: (i % 2 === 0 ? 1 : 2) as SystemId,
-          toSystem: (i % 2 === 0 ? 1 : 2) as SystemId,
-          cargo: [],
-          priceInfo: [],
-        }),
-      }));
+      await system.shipArrival({
+        timestamp: Date.now(),
+        shipId: `npc-${i}`,
+        fromSystem: (i % 2 === 0 ? 1 : 2) as SystemId,
+        toSystem: (i % 2 === 0 ? 1 : 2) as SystemId,
+        cargo: new Map(),
+        priceInfo: new Map(),
+      });
 
       npcShips.push(ship);
     }
@@ -107,8 +89,6 @@ describe("Long-Running 10-Minute Simulation", () => {
     // We'll process ticks more frequently to test all operations
     const startTime = Date.now();
     const simulationTicks = 60; // Simulate 60 ticks worth of operations
-    const tickInterval = 10 * 1000; // 10 seconds per tick (TICK_INTERVAL_MS)
-    
     let tickCount = 0;
     
     // Track statistics
@@ -123,24 +103,26 @@ describe("Long-Running 10-Minute Simulation", () => {
     };
 
     // Get initial states
-    const initialSnapshot1 = await (await system1.fetch(new Request("https://dummy/snapshot"))).json();
-    const initialSnapshot2 = await (await system2.fetch(new Request("https://dummy/snapshot"))).json();
+    const initialSnapshot1 = await system1.getSnapshot();
+    await system2.getSnapshot();
     
     // Track initial prices
-    for (const [goodId, market] of Object.entries(initialSnapshot1.markets)) {
+    for (const [goodId, market] of initialSnapshot1.markets.entries()) {
       if (!stats.priceChanges.has(goodId)) {
         stats.priceChanges.set(goodId, []);
       }
-      stats.priceChanges.get(goodId)!.push((market as any).price);
+      stats.priceChanges.get(goodId)!.push(market.price);
     }
 
     // Track initial credits
     for (const ship of npcShips) {
-      const state = await (await ship.fetch(new Request("https://dummy/state"))).json();
-      if (!stats.creditChanges.has(state.id)) {
+      const state = await ship.getState();
+      if (state && !stats.creditChanges.has(state.id)) {
         stats.creditChanges.set(state.id, []);
       }
-      stats.creditChanges.get(state.id)!.push(state.credits);
+      if (state) {
+        stats.creditChanges.get(state.id)!.push(state.credits);
+      }
     }
 
     // Run simulation - process many ticks to test operations
@@ -154,37 +136,38 @@ describe("Long-Running 10-Minute Simulation", () => {
         }
 
         // Tick systems
-        const system1Tick = await system1.fetch(new Request("https://dummy/tick", { method: "POST" }));
-        const system2Tick = await system2.fetch(new Request("https://dummy/tick", { method: "POST" }));
+        const system1Tick = await system1.tick();
+        const system2Tick = await system2.tick();
         
-        if (system1Tick.ok && system2Tick.ok) {
+        // Systems should process ticks successfully
+        if (system1Tick && system2Tick) {
           stats.systemTicks++;
-          // Note: processed may be 0 if no time passed, but system should still respond
         }
 
         // Tick NPC ships
         for (const ship of npcShips) {
           try {
-            const shipTick = await ship.fetch(new Request("https://dummy/tick", { method: "POST" }));
-            if (shipTick.ok) {
+            const shipTick = await ship.tick();
+            if (!shipTick.skipped) {
               stats.shipTicks++;
-              const tickData = (await shipTick.json()) as { skipped?: boolean };
               
               // Check if ship traveled or traded
-              const shipState = await (await ship.fetch(new Request("https://dummy/state"))).json();
+              const shipState = await ship.getState();
               
-              // Track credit changes
-              if (!stats.creditChanges.has(shipState.id)) {
-                stats.creditChanges.set(shipState.id, []);
-              }
-              const creditHistory = stats.creditChanges.get(shipState.id)!;
-              if (creditHistory[creditHistory.length - 1] !== shipState.credits) {
-                creditHistory.push(shipState.credits);
-              }
+              if (shipState) {
+                // Track credit changes
+                if (!stats.creditChanges.has(shipState.id)) {
+                  stats.creditChanges.set(shipState.id, []);
+                }
+                const creditHistory = stats.creditChanges.get(shipState.id)!;
+                if (creditHistory[creditHistory.length - 1] !== shipState.credits) {
+                  creditHistory.push(shipState.credits);
+                }
 
-              // Check for phase transitions (travel)
-              if (shipState.phase === "departing" || shipState.phase === "in_hyperspace" || shipState.phase === "arriving") {
-                stats.shipsTraveled++;
+                // Check for phase transitions (travel)
+                if (shipState.phase === "traveling") {
+                  stats.shipsTraveled++;
+                }
               }
             }
           } catch (error) {
@@ -194,12 +177,12 @@ describe("Long-Running 10-Minute Simulation", () => {
 
         // Periodically check market prices
         if (tickCount % 10 === 0) {
-          const snapshot1 = await (await system1.fetch(new Request("https://dummy/snapshot"))).json();
-          for (const [goodId, market] of Object.entries(snapshot1.markets)) {
+          const snapshot1 = await system1.getSnapshot();
+          for (const [goodId, market] of snapshot1.markets.entries()) {
             if (!stats.priceChanges.has(goodId)) {
               stats.priceChanges.set(goodId, []);
             }
-            stats.priceChanges.get(goodId)!.push((market as any).price);
+            stats.priceChanges.get(goodId)!.push(market.price);
           }
         }
 
@@ -220,53 +203,50 @@ describe("Long-Running 10-Minute Simulation", () => {
     expect(stats.errors.length).toBe(0);
 
     // Verify systems are still operational
-    const finalSnapshot1 = await (await system1.fetch(new Request("https://dummy/snapshot"))).json();
-    const finalSnapshot2 = await (await system2.fetch(new Request("https://dummy/snapshot"))).json();
+    const finalSnapshot1 = await system1.getSnapshot();
+    const finalSnapshot2 = await system2.getSnapshot();
 
     expect(finalSnapshot1.markets).toBeDefined();
     expect(finalSnapshot2.markets).toBeDefined();
     // Ticks may be 0 if no time passed, but systems should still be operational
-    expect(finalSnapshot1.state.currentTick).toBeGreaterThanOrEqual(0);
-    expect(finalSnapshot2.state.currentTick).toBeGreaterThanOrEqual(0);
+    expect(finalSnapshot1.state?.currentTick).toBeGreaterThanOrEqual(0);
+    expect(finalSnapshot2.state?.currentTick).toBeGreaterThanOrEqual(0);
 
     // Verify ships are still operational
     for (const ship of npcShips) {
-      const state = await (await ship.fetch(new Request("https://dummy/state"))).json();
-      expect(state.credits).toBeDefined();
-      expect(typeof state.credits).toBe("number");
-      expect(state.phase).toBeDefined();
-      expect(["at_station", "departing", "in_hyperspace", "arriving", "resting", "sleeping"]).toContain(state.phase);
+      const state = await ship.getState();
+      expect(state?.credits).toBeDefined();
+      expect(typeof state?.credits).toBe("number");
+      expect(state?.phase).toBeDefined();
+      expect([
+        "at_station",
+        "traveling",
+      ]).toContain(state?.phase);
     }
 
     // Verify price dynamics (prices should have changed over time)
-    let pricesChanged = false;
-    for (const [goodId, prices] of stats.priceChanges.entries()) {
+    for (const [, prices] of stats.priceChanges.entries()) {
       if (prices.length > 1) {
         const firstPrice = prices[0];
         const lastPrice = prices[prices.length - 1];
-        if (firstPrice !== lastPrice) {
-          pricesChanged = true;
-          break;
-        }
+        void firstPrice;
+        void lastPrice;
       }
     }
     // Prices may or may not change depending on market dynamics, but markets should be active
     expect(stats.priceChanges.size).toBeGreaterThan(0);
 
     // Verify credit tracking (credits should have changed for some ships)
-    let creditsChanged = false;
-    for (const [shipId, credits] of stats.creditChanges.entries()) {
+    for (const credits of stats.creditChanges.values()) {
       if (credits.length > 1) {
         const firstCredit = credits[0];
         const lastCredit = credits[credits.length - 1];
-        if (firstCredit !== lastCredit) {
-          creditsChanged = true;
-          break;
-        }
+        void firstCredit;
+        void lastCredit;
       }
     }
     // Credits may change due to trading, but all ships should maintain valid credit values
-    for (const [shipId, credits] of stats.creditChanges.entries()) {
+    for (const credits of stats.creditChanges.values()) {
       expect(credits.length).toBeGreaterThan(0);
       expect(credits[credits.length - 1]).toBeGreaterThanOrEqual(0);
     }
@@ -285,28 +265,30 @@ describe("Long-Running 10-Minute Simulation", () => {
     
     const initialCredits = new Map<string, number>();
     for (const ship of npcShips) {
-      const state = await (await ship.fetch(new Request("https://dummy/state"))).json();
-      initialCredits.set(state.id, state.credits);
+      const state = await ship.getState();
+      if (state) {
+        initialCredits.set(state.id, state.credits);
+      }
     }
 
     // Run simulation
     for (let i = 0; i < simulationTicks; i++) {
       // Tick systems
-      await system1.fetch(new Request("https://dummy/tick", { method: "POST" }));
-      await system2.fetch(new Request("https://dummy/tick", { method: "POST" }));
+      await system1.tick();
+      await system2.tick();
 
       // Tick ships
       for (const ship of npcShips) {
-        await ship.fetch(new Request("https://dummy/tick", { method: "POST" }));
+        await ship.tick();
       }
     }
 
     // Verify all ships still have valid credit values
     for (const ship of npcShips) {
-      const state = await (await ship.fetch(new Request("https://dummy/state"))).json();
-      expect(state.credits).toBeDefined();
-      expect(typeof state.credits).toBe("number");
-      expect(state.credits).toBeGreaterThanOrEqual(0);
+      const state = await ship.getState();
+      expect(state?.credits).toBeDefined();
+      expect(typeof state?.credits).toBe("number");
+      expect(state?.credits).toBeGreaterThanOrEqual(0);
     }
   }, 5 * 60 * 1000); // 5 minute timeout
 
@@ -318,13 +300,13 @@ describe("Long-Running 10-Minute Simulation", () => {
     // Run simulation and track trades
     for (let i = 0; i < simulationTicks; i++) {
       // Tick systems
-      await system1.fetch(new Request("https://dummy/tick", { method: "POST" }));
-      await system2.fetch(new Request("https://dummy/tick", { method: "POST" }));
+      await system1.tick();
+      await system2.tick();
 
       // Tick ships (NPCs may attempt trades)
       for (const ship of npcShips) {
-        const tickResponse = await ship.fetch(new Request("https://dummy/tick", { method: "POST" }));
-        if (tickResponse.ok) {
+        const result = await ship.tick();
+        if (!result.skipped) {
           successfulTrades++;
         } else {
           failedTrades++;
@@ -336,8 +318,8 @@ describe("Long-Running 10-Minute Simulation", () => {
     expect(successfulTrades + failedTrades).toBe(simulationTicks * npcShips.length);
     
     // Verify systems are still operational
-    const snapshot1 = await (await system1.fetch(new Request("https://dummy/snapshot"))).json();
-    const snapshot2 = await (await system2.fetch(new Request("https://dummy/snapshot"))).json();
+    const snapshot1 = await system1.getSnapshot();
+    const snapshot2 = await system2.getSnapshot();
     
     expect(snapshot1.markets).toBeDefined();
     expect(snapshot2.markets).toBeDefined();
@@ -352,23 +334,25 @@ describe("Long-Running 10-Minute Simulation", () => {
     // Track credits over time
     for (let i = 0; i < simulationTicks; i++) {
       // Tick systems
-      await system1.fetch(new Request("https://dummy/tick", { method: "POST" }));
-      await system2.fetch(new Request("https://dummy/tick", { method: "POST" }));
+      await system1.tick();
+      await system2.tick();
 
       // Tick ships and track credits
       for (const ship of npcShips) {
-        await ship.fetch(new Request("https://dummy/tick", { method: "POST" }));
+        await ship.tick();
         
-        const state = await (await ship.fetch(new Request("https://dummy/state"))).json();
-        if (!creditHistory.has(state.id)) {
-          creditHistory.set(state.id, []);
+        const state = await ship.getState();
+        if (state) {
+          if (!creditHistory.has(state.id)) {
+            creditHistory.set(state.id, []);
+          }
+          creditHistory.get(state.id)!.push(state.credits);
         }
-        creditHistory.get(state.id)!.push(state.credits);
       }
     }
 
     // Verify all NPCs maintained valid credit values throughout
-    for (const [shipId, credits] of creditHistory.entries()) {
+    for (const credits of creditHistory.values()) {
       expect(credits.length).toBe(simulationTicks);
       for (const credit of credits) {
         expect(credit).toBeGreaterThanOrEqual(0);
@@ -377,4 +361,3 @@ describe("Long-Running 10-Minute Simulation", () => {
     }
   }, 5 * 60 * 1000);
 });
-

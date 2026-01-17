@@ -1,5 +1,6 @@
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeEach } from "vitest";
 import { Ship } from "./ship";
+import { StarSystem } from "./star-system";
 import { MockDurableObjectState, createMockEnv } from "./test-utils/mocks";
 import { SystemId, WorldType, TechLevel } from "./types";
 
@@ -16,77 +17,56 @@ describe("Ship Travel Phases", () => {
 
     // Create a mock system
     const systemState = new MockDurableObjectState({ toString: () => "system-0" } as any);
-    system = await import("./star-system").then(m => new m.StarSystem(systemState, mockEnv));
+    system = new StarSystem(systemState, mockEnv);
     
     // Initialize system
-    await system.fetch(new Request("https://dummy/initialize", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        id: 0 as SystemId,
-        name: "Test System",
-        population: 10,
-        techLevel: TechLevel.AGRICULTURAL,
-        worldType: WorldType.AGRICULTURAL,
-        government: "democracy",
-        seed: "test-seed",
-      }),
-    }));
+    await system.initialize({
+      id: 0 as SystemId,
+      name: "Test System",
+      population: 10,
+      techLevel: TechLevel.AGRICULTURAL,
+      worldType: WorldType.AGRICULTURAL,
+      seed: "test-seed",
+    });
 
     // Register system in mock env
     mockEnv.STAR_SYSTEM.set(mockEnv.STAR_SYSTEM.idFromName("system-0"), system);
 
     // Initialize ship
-    await ship.fetch(new Request("https://dummy/initialize", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        id: "ship-test",
-        name: "Test Ship",
-        systemId: 0 as SystemId,
-        seed: "test-seed",
-        isNPC: true,
-      }),
-    }));
+    await ship.initialize({
+      id: "ship-test",
+      name: "Test Ship",
+      systemId: 0 as SystemId,
+      seed: "test-seed",
+      isNPC: true,
+    });
   });
 
   describe("Phase Transitions", () => {
     it("should start at 'at_station' phase", async () => {
-      const stateResponse = await ship.fetch(new Request("https://dummy/state"));
-      const state = await stateResponse.json();
-      expect(state.phase).toBe("at_station");
+      const state = await ship.getState();
+      expect(state?.phase).toBe("at_station");
     });
 
-    it("should transition to 'departing' when travel starts", async () => {
-      // Get initial state
-      const stateResponse = await ship.fetch(new Request("https://dummy/state"));
-      const state = await stateResponse.json();
-      expect(state.phase).toBe("at_station");
+    it("should expose travel timing fields", async () => {
+      const state = await ship.getState();
+      expect(state?.phase).toBe("at_station");
 
-      // Manually set destination to trigger departure (via tick logic)
-      // We'll need to simulate the NPC making a travel decision
-      // For now, verify the phase structure exists
+      // Verify the simplified phase structure exists
       expect(state).toHaveProperty("phase");
-      expect(state).toHaveProperty("departureStartTime");
-      expect(state).toHaveProperty("arrivalStartTime");
+      expect(state).toHaveProperty("travelStartTime");
     });
 
-    it("should handle resting phase", async () => {
-      const stateResponse = await ship.fetch(new Request("https://dummy/state"));
-      const state = await stateResponse.json();
-      
-      // Verify resting fields exist
-      expect(state).toHaveProperty("restStartTime");
-      expect(state).toHaveProperty("restEndTime");
-      expect(state).toHaveProperty("phase");
-    });
+    // Removed resting phase test - simplified (resting phase removed)
 
     it("should handle sleeping phase", async () => {
-      const stateResponse = await ship.fetch(new Request("https://dummy/state"));
-      const state = await stateResponse.json();
+      const state = await ship.getState();
       
       // Verify phase can be sleeping
-      expect(["at_station", "departing", "in_hyperspace", "arriving", "resting", "sleeping"]).toContain(state.phase);
+      expect([
+        "at_station",
+        "traveling",
+      ]).toContain(state?.phase);
     });
   });
 
@@ -94,100 +74,52 @@ describe("Ship Travel Phases", () => {
     it("should process departure phase completion", async () => {
       // This test would require mocking time or advancing it
       // For now, verify the structure supports time-based transitions
-      const stateResponse = await ship.fetch(new Request("https://dummy/state"));
-      const state = await stateResponse.json();
+      const state = await ship.getState();
       
-      expect(state).toHaveProperty("departureStartTime");
-      expect(state).toHaveProperty("hyperspaceStartTime");
-      expect(state).toHaveProperty("arrivalStartTime");
-      expect(state).toHaveProperty("arrivalCompleteTime");
+      // Removed old time fields - simplified to travelStartTime
+      expect(state).toHaveProperty("travelStartTime");
     });
 
-    it("should skip ticks when resting", async () => {
-      // Initialize ship and set to resting state
-      const tickResponse = await ship.fetch(new Request("https://dummy/tick", { method: "POST" }));
-      const tickData = await tickResponse.json();
-      
-      // If ship is resting, should return skipped: true
-      // This tests the skip logic
-      expect(tickResponse.status).toBe(200);
-    });
-
-    it("should skip ticks when sleeping", async () => {
-      const tickResponse = await ship.fetch(new Request("https://dummy/tick", { method: "POST" }));
-      expect(tickResponse.status).toBe(200);
-      
-      const tickData = await tickResponse.json();
-      // May be skipped if resting/sleeping
-      expect(tickData).toHaveProperty("success");
-    });
+    // Removed rest/sleep tests - simplified
   });
 
   describe("Phase Transition Edge Cases", () => {
     it("should handle all phase transitions correctly", async () => {
-      const state = await (await ship.fetch(new Request("https://dummy/state"))).json();
+      const state = await ship.getState();
       
       // Verify all phase-related fields exist
       expect(state).toHaveProperty("phase");
-      expect(state).toHaveProperty("departureStartTime");
-      expect(state).toHaveProperty("hyperspaceStartTime");
-      expect(state).toHaveProperty("arrivalStartTime");
-      expect(state).toHaveProperty("arrivalCompleteTime");
-      expect(state).toHaveProperty("restStartTime");
-      expect(state).toHaveProperty("restEndTime");
+      // Removed old time fields - simplified to travelStartTime
+      expect(state).toHaveProperty("travelStartTime");
+      // Removed rest/sleep fields - simplified
       expect(state).toHaveProperty("currentSystem");
       expect(state).toHaveProperty("destinationSystem");
     });
 
     it("should maintain phase consistency across ticks", async () => {
-      const state1 = await (await ship.fetch(new Request("https://dummy/state"))).json();
-      const initialPhase = state1.phase;
+      const state1 = await ship.getState();
+      void state1?.phase;
 
       // Process tick
-      await ship.fetch(new Request("https://dummy/tick", { method: "POST" }));
+      await ship.tick();
 
-      const state2 = await (await ship.fetch(new Request("https://dummy/state"))).json();
+      const state2 = await ship.getState();
       
       // Phase should be valid
-      const validPhases = ["at_station", "departing", "in_hyperspace", "arriving", "resting", "sleeping"];
-      expect(validPhases).toContain(state2.phase);
+      const validPhases = [
+        "at_station",
+        "traveling",
+      ];
+      expect(validPhases).toContain(state2?.phase);
     });
 
-    it("should handle resting phase duration correctly", async () => {
-      const state = await (await ship.fetch(new Request("https://dummy/state"))).json();
-      
-      // If ship is resting, verify rest times are set
-      if (state.phase === "resting") {
-        expect(state.restStartTime).not.toBeNull();
-        expect(state.restEndTime).not.toBeNull();
-        expect(state.restEndTime).toBeGreaterThan(state.restStartTime!);
-      }
-    });
-
-    it("should handle sleeping phase duration correctly", async () => {
-      const state = await (await ship.fetch(new Request("https://dummy/state"))).json();
-      
-      // If ship is sleeping, verify sleep times are set
-      if (state.phase === "sleeping") {
-        expect(state.restStartTime).not.toBeNull();
-        expect(state.restEndTime).not.toBeNull();
-        expect(state.restEndTime).toBeGreaterThan(state.restStartTime!);
-      }
-    });
-
+    // Removed rest/sleep/travel phase tests - simplified to at_station and traveling only
     it("should handle travel phase transitions", async () => {
-      const state = await (await ship.fetch(new Request("https://dummy/state"))).json();
+      const state = await ship.getState();
       
-      // Ship should be able to transition through travel phases
-      if (state.phase === "departing") {
-        expect(state.departureStartTime).not.toBeNull();
-        expect(state.destinationSystem).not.toBeNull();
-      } else if (state.phase === "in_hyperspace") {
-        expect(state.hyperspaceStartTime).not.toBeNull();
-        expect(state.destinationSystem).not.toBeNull();
-      } else if (state.phase === "arriving") {
-        expect(state.arrivalStartTime).not.toBeNull();
-        expect(state.arrivalCompleteTime).not.toBeNull();
+      // Ship should be able to transition through simplified travel phases
+      if (state?.phase === "traveling") {
+        expect(state.travelStartTime).not.toBeNull();
         expect(state.destinationSystem).not.toBeNull();
       }
     });
@@ -197,14 +129,17 @@ describe("Ship Travel Phases", () => {
     it("should process time-based phase transitions", async () => {
       // Process multiple ticks to allow phase transitions
       for (let i = 0; i < 10; i++) {
-        const tickResponse = await ship.fetch(new Request("https://dummy/tick", { method: "POST" }));
-        expect(tickResponse.status).toBe(200);
+        const result = await ship.tick();
+        expect(result.skipped).toBe(false);
       }
 
       // Ship should still be in a valid state
-      const state = await (await ship.fetch(new Request("https://dummy/state"))).json();
-      const validPhases = ["at_station", "departing", "in_hyperspace", "arriving", "resting", "sleeping"];
-      expect(validPhases).toContain(state.phase);
+      const state = await ship.getState();
+      const validPhases = [
+        "at_station",
+        "traveling",
+      ];
+      expect(validPhases).toContain(state?.phase);
     });
 
     it("should handle phase transitions without errors", async () => {
@@ -213,9 +148,9 @@ describe("Ship Travel Phases", () => {
       // Process many ticks
       for (let i = 0; i < 20; i++) {
         try {
-          const tickResponse = await ship.fetch(new Request("https://dummy/tick", { method: "POST" }));
-          if (!tickResponse.ok) {
-            errors.push(`Tick ${i} failed: ${tickResponse.status}`);
+          const result = await ship.tick();
+          if (result.skipped) {
+            errors.push(`Tick ${i} skipped`);
           }
         } catch (error) {
           errors.push(`Tick ${i} error: ${error instanceof Error ? error.message : String(error)}`);
@@ -226,4 +161,3 @@ describe("Ship Travel Phases", () => {
     });
   });
 });
-

@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { StarSystem } from "./star-system";
 import { MockDurableObjectState, createMockEnv } from "./test-utils/mocks";
-import { TechLevel, GovernmentType, SystemId, WorldType } from "./types";
+import { TechLevel, SystemId, WorldType } from "./types";
 
 describe("StarSystem", () => {
   let system: StarSystem;
@@ -16,50 +16,35 @@ describe("StarSystem", () => {
 
   describe("Initialization", () => {
     it("should initialize a new system", async () => {
-      const initRequest = new Request("https://dummy/initialize", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          id: 0 as SystemId,
-          name: "Test System",
-          population: 10,
-          techLevel: TechLevel.INDUSTRIAL,
-          worldType: WorldType.INDUSTRIAL,
-          government: GovernmentType.DEMOCRACY,
-          seed: "test-seed-123",
-        }),
+      await system.initialize({
+        id: 0 as SystemId,
+        name: "Test System",
+        population: 10,
+        techLevel: TechLevel.INDUSTRIAL,
+        worldType: WorldType.INDUSTRIAL,
+        seed: "test-seed-123",
       });
 
-      const response = await system.fetch(initRequest);
-      expect(response.status).toBe(200);
-
-      const data = await response.json();
-      expect(data.success).toBe(true);
+      const state = await system.getState();
+      expect(state).toBeDefined();
+      expect(state?.id).toBe(0);
     });
 
     it("should create markets for all goods", async () => {
-      const initRequest = new Request("https://dummy/initialize", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          id: 0 as SystemId,
-          name: "Test System",
-          population: 10,
-          techLevel: TechLevel.HI_TECH,
-          worldType: WorldType.HIGH_TECH,
-          government: GovernmentType.DEMOCRACY,
-          seed: "test-seed",
-        }),
+      await system.initialize({
+        id: 0 as SystemId,
+        name: "Test System",
+        population: 10,
+        techLevel: TechLevel.HI_TECH,
+        worldType: WorldType.HIGH_TECH,
+        seed: "test-seed",
       });
 
-      await system.fetch(initRequest);
+      const snapshot = await system.getSnapshot();
+      const marketsObj = Object.fromEntries(snapshot.markets.entries());
 
-      const snapshotRequest = new Request("https://dummy/snapshot");
-      const snapshotResponse = await system.fetch(snapshotRequest);
-      const snapshot = await snapshotResponse.json();
-
-      expect(snapshot.markets).toBeDefined();
-      expect(Object.keys(snapshot.markets).length).toBeGreaterThan(0);
+      expect(marketsObj).toBeDefined();
+      expect(Object.keys(marketsObj).length).toBeGreaterThan(0);
     });
 
     it("should allow re-initialization", async () => {
@@ -69,721 +54,501 @@ describe("StarSystem", () => {
         population: 10,
         techLevel: TechLevel.INDUSTRIAL,
         worldType: WorldType.INDUSTRIAL,
-        government: GovernmentType.DEMOCRACY,
         seed: "test-seed",
       };
 
-      const initRequest1 = new Request("https://dummy/initialize", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(initData),
-      });
-
-      await system.fetch(initRequest1);
+      await system.initialize(initData);
+      await system.initialize(initData);
       
-      const initRequest2 = new Request("https://dummy/initialize", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(initData),
-      });
-      
-      const secondResponse = await system.fetch(initRequest2);
-      expect(secondResponse.status).toBe(200);
+      const state = await system.getState();
+      expect(state).toBeDefined();
     });
   });
 
   describe("State Management", () => {
     beforeEach(async () => {
-      const initRequest = new Request("https://dummy/initialize", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          id: 0 as SystemId,
-          name: "Test System",
-          population: 10,
-          techLevel: TechLevel.INDUSTRIAL,
-          government: GovernmentType.DEMOCRACY,
-          seed: "test-seed",
-        }),
+      await system.initialize({
+        id: 0 as SystemId,
+        name: "Test System",
+        population: 10,
+        techLevel: TechLevel.INDUSTRIAL,
+        worldType: WorldType.INDUSTRIAL,
+        seed: "test-seed",
       });
-      await system.fetch(initRequest);
 
-      await system.fetch(new Request("https://dummy/arrival", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          timestamp: Date.now(),
-          shipId: "test-ship",
-          fromSystem: 0,
-          toSystem: 0,
-          cargo: [],
-          priceInfo: [],
-        }),
-      }));
+      await system.shipArrival({
+        timestamp: Date.now(),
+        shipId: "test-ship",
+        fromSystem: 0,
+        toSystem: 0,
+        cargo: new Map(),
+        priceInfo: new Map(),
+      });
     });
 
     it("should return system state", async () => {
-      const request = new Request("https://dummy/state");
-      const response = await system.fetch(request);
-      const state = await response.json();
+      const state = await system.getState();
 
-      expect(state.id).toBe(0);
-      expect(state.name).toBe("Test System");
-      expect(state.population).toBe(10);
-      expect(state.techLevel).toBe(TechLevel.INDUSTRIAL);
+      expect(state?.id).toBe(0);
+      expect(state?.name).toBe("Test System");
+      expect(state?.population).toBe(10);
+      expect(state?.techLevel).toBe(TechLevel.INDUSTRIAL);
     });
 
     it("should return system snapshot", async () => {
-      const request = new Request("https://dummy/snapshot");
-      const response = await system.fetch(request);
-      const snapshot = await response.json();
+      const snapshot = await system.getSnapshot();
 
       expect(snapshot.state).toBeDefined();
       expect(snapshot.markets).toBeDefined();
       expect(snapshot.shipsInSystem).toBeDefined();
-      expect(Array.isArray(snapshot.shipsInSystem)).toBe(true);
+      expect(Array.isArray(Array.from(snapshot.shipsInSystem))).toBe(true);
     });
   });
 
   describe("Ticking", () => {
     beforeEach(async () => {
-      const initRequest = new Request("https://dummy/initialize", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          id: 0 as SystemId,
-          name: "Test System",
-          population: 10,
-          techLevel: TechLevel.INDUSTRIAL,
-          government: GovernmentType.DEMOCRACY,
-          seed: "test-seed",
-        }),
+      await system.initialize({
+        id: 0 as SystemId,
+        name: "Test System",
+        population: 10,
+        techLevel: TechLevel.INDUSTRIAL,
+        worldType: WorldType.INDUSTRIAL,
+        seed: "test-seed",
       });
-      await system.fetch(initRequest);
 
-      await system.fetch(new Request("https://dummy/arrival", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          timestamp: Date.now(),
-          shipId: "test-ship",
-          fromSystem: 0,
-          toSystem: 0,
-          cargo: [],
-          priceInfo: [],
-        }),
-      }));
+      await system.shipArrival({
+        timestamp: Date.now(),
+        shipId: "test-ship",
+        fromSystem: 0,
+        toSystem: 0,
+        cargo: new Map(),
+        priceInfo: new Map(),
+      });
     });
 
     it("should process ticks", async () => {
-      // First, ensure system is initialized and has a lastTickTime
-      const stateRequest = new Request("https://dummy/state");
-      const stateResponse = await system.fetch(stateRequest);
-      const state = await stateResponse.json();
-      
-      // Manually set lastTickTime to past to ensure ticks are processed
-      // We'll need to advance time or check that tick increments
-      const tickRequest = new Request("https://dummy/tick", { method: "POST" });
-      const response = await system.fetch(tickRequest);
-      const data = await response.json();
+      const result = await system.tick();
 
-      // Tick should be at least 0 (starts at 0, increments on first real tick)
-      expect(data.tick).toBeGreaterThanOrEqual(0);
-      expect(data.processed).toBeGreaterThanOrEqual(0);
+      expect(result.tick).toBeGreaterThanOrEqual(0);
+      expect(result.processed).toBeGreaterThanOrEqual(0);
     });
 
     it("should update market prices on tick", async () => {
-      // Get initial snapshot
-      const snapshot1Request = new Request("https://dummy/snapshot");
-      const snapshot1 = await (await system.fetch(snapshot1Request)).json();
-      const initialPrice = snapshot1.markets.food?.price;
+      const snapshot1 = await system.getSnapshot();
+      void snapshot1.markets.get("food")?.price;
 
-      // Process a tick
-      await system.fetch(new Request("https://dummy/tick", { method: "POST" }));
+      await system.tick();
 
-      // Get updated snapshot
-      const snapshot2 = await (await system.fetch(snapshot1Request)).json();
-      const updatedPrice = snapshot2.markets.food?.price;
+      const snapshot2 = await system.getSnapshot();
+      const price2 = snapshot2.markets.get("food")?.price;
 
-      // Price should have changed (or at least be defined)
-      expect(updatedPrice).toBeDefined();
-      expect(typeof updatedPrice).toBe("number");
+      expect(price2).toBeDefined();
+      expect(typeof price2).toBe("number");
     });
 
     it("should update inventory on tick", async () => {
-      const snapshot1 = await (
-        await system.fetch(new Request("https://dummy/snapshot"))
-      ).json();
-      const initialInventory = snapshot1.markets.food?.inventory;
+      const snapshot1 = await system.getSnapshot();
+      void snapshot1.markets.get("food")?.inventory;
 
-      await system.fetch(new Request("https://dummy/tick", { method: "POST" }));
+      await system.tick();
 
-      const snapshot2 = await (
-        await system.fetch(new Request("https://dummy/snapshot"))
-      ).json();
-      const updatedInventory = snapshot2.markets.food?.inventory;
+      const snapshot2 = await system.getSnapshot();
+      const inventory2 = snapshot2.markets.get("food")?.inventory;
 
-      expect(updatedInventory).toBeDefined();
-      expect(typeof updatedInventory).toBe("number");
+      expect(inventory2).toBeDefined();
+      expect(typeof inventory2).toBe("number");
     });
   });
 
   describe("Trading", () => {
     beforeEach(async () => {
-      const initRequest = new Request("https://dummy/initialize", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          id: 0 as SystemId,
-          name: "Test System",
-          population: 10,
-          techLevel: TechLevel.INDUSTRIAL,
-          government: GovernmentType.DEMOCRACY,
-          seed: "test-seed",
-        }),
+      await system.initialize({
+        id: 0 as SystemId,
+        name: "Test System",
+        population: 10,
+        techLevel: TechLevel.INDUSTRIAL,
+        worldType: WorldType.INDUSTRIAL,
+        seed: "test-seed",
       });
-      await system.fetch(initRequest);
 
-      await system.fetch(new Request("https://dummy/arrival", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          timestamp: Date.now(),
-          shipId: "test-ship",
-          fromSystem: 0,
-          toSystem: 0,
-          cargo: [],
-          priceInfo: [],
-        }),
-      }));
+      await system.shipArrival({
+        timestamp: Date.now(),
+        shipId: "test-ship",
+        fromSystem: 0,
+        toSystem: 0,
+        cargo: new Map(),
+        priceInfo: new Map(),
+      });
     });
 
     it("should allow buying goods", async () => {
-      const tradeRequest = new Request("https://dummy/trade", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          shipId: "test-ship",
-          goodId: "food",
-          quantity: 10,
-          type: "buy",
-        }),
+      const result = await system.trade({
+        shipId: "test-ship",
+        goodId: "food",
+        quantity: 10,
+        type: "buy",
       });
 
-      const response = await system.fetch(tradeRequest);
-      expect(response.status).toBe(200);
-
-      const data = await response.json();
-      expect(data.success).toBe(true);
-      expect(data.price).toBeGreaterThan(0);
-      expect(data.totalCost).toBeGreaterThan(0);
+      expect(result.success).toBe(true);
+      expect(result.price).toBeGreaterThan(0);
+      expect(result.totalCost).toBeGreaterThan(0);
     });
 
     it("should reject buying when inventory is insufficient", async () => {
-      // First, get snapshot to check inventory
-      const snapshot = await (
-        await system.fetch(new Request("https://dummy/snapshot"))
-      ).json();
-      const maxInventory = snapshot.markets.food?.inventory || 0;
+      const snapshot = await system.getSnapshot();
+      const maxInventory = snapshot.markets.get("food")?.inventory || 0;
 
-      const tradeRequest = new Request("https://dummy/trade", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          shipId: "test-ship",
-          goodId: "food",
-          quantity: maxInventory + 1000, // More than available
-          type: "buy",
-        }),
+      const result = await system.trade({
+        shipId: "test-ship",
+        goodId: "food",
+        quantity: maxInventory + 1000,
+        type: "buy",
       });
 
-      const response = await system.fetch(tradeRequest);
-      expect(response.status).toBe(400);
+      expect(result.success).toBe(false);
+      expect(result.error).toBeDefined();
     });
 
     it("should allow selling goods", async () => {
-      const tradeRequest = new Request("https://dummy/trade", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          shipId: "test-ship",
-          goodId: "food",
-          quantity: 10,
-          type: "sell",
-        }),
+      const result = await system.trade({
+        shipId: "test-ship",
+        goodId: "food",
+        quantity: 10,
+        type: "sell",
       });
 
-      const response = await system.fetch(tradeRequest);
-      expect(response.status).toBe(200);
-
-      const data = await response.json();
-      expect(data.success).toBe(true);
-      expect(data.price).toBeGreaterThan(0);
-      expect(data.totalValue).toBeGreaterThan(0);
+      expect(result.success).toBe(true);
+      expect(result.price).toBeGreaterThan(0);
+      expect(result.totalValue).toBeGreaterThan(0);
     });
 
     it("should reject selling for nonexistent goods", async () => {
-      const tradeRequest = new Request("https://dummy/trade", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          shipId: "test-ship",
-          goodId: "nonexistent",
-          quantity: 10,
-          type: "sell",
-        }),
+      const result = await system.trade({
+        shipId: "test-ship",
+        goodId: "nonexistent",
+        quantity: 10,
+        type: "sell",
       });
 
-      const response = await system.fetch(tradeRequest);
-      expect(response.status).toBe(400);
+      expect(result.success).toBe(false);
+      expect(result.error).toBeDefined();
     });
   });
 
   describe("Ship Management", () => {
     beforeEach(async () => {
-      const initRequest = new Request("https://dummy/initialize", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          id: 0 as SystemId,
-          name: "Test System",
-          population: 10,
-          techLevel: TechLevel.INDUSTRIAL,
-          government: GovernmentType.DEMOCRACY,
-          seed: "test-seed",
-        }),
+      await system.initialize({
+        id: 0 as SystemId,
+        name: "Test System",
+        population: 10,
+        techLevel: TechLevel.INDUSTRIAL,
+        worldType: WorldType.INDUSTRIAL,
+        seed: "test-seed",
       });
-      await system.fetch(initRequest);
 
-      await system.fetch(new Request("https://dummy/arrival", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          timestamp: Date.now(),
-          shipId: "test-ship",
-          fromSystem: 0,
-          toSystem: 0,
-          cargo: [],
-          priceInfo: [],
-        }),
-      }));
+      await system.shipArrival({
+        timestamp: Date.now(),
+        shipId: "test-ship",
+        fromSystem: 0,
+        toSystem: 0,
+        cargo: new Map(),
+        priceInfo: new Map(),
+      });
     });
 
     it("should handle ship arrival", async () => {
-      const arrivalRequest = new Request("https://dummy/arrival", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          timestamp: Date.now(),
-          shipId: "test-ship",
-          fromSystem: 1,
-          toSystem: 0,
-          cargo: [],
-          priceInfo: [],
-        }),
+      await system.shipArrival({
+        timestamp: Date.now(),
+        shipId: "test-ship",
+        fromSystem: 1,
+        toSystem: 0,
+        cargo: new Map(),
+        priceInfo: new Map(),
       });
 
-      const response = await system.fetch(arrivalRequest);
-      expect(response.status).toBe(200);
-
-      const snapshot = await (
-        await system.fetch(new Request("https://dummy/snapshot"))
-      ).json();
-      expect(snapshot.shipsInSystem).toContain("test-ship");
+      const snapshot = await system.getSnapshot();
+      expect(Array.from(snapshot.shipsInSystem)).toContain("test-ship");
     });
 
     it("should handle ship departure", async () => {
-      // First add a ship
-      await system.fetch(
-        new Request("https://dummy/arrival", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            timestamp: Date.now(),
-            shipId: "test-ship",
-            fromSystem: 1,
-            toSystem: 0,
-            cargo: [],
-            priceInfo: [],
-          }),
-        })
-      );
-
-      // Then remove it
-      const departureRequest = new Request("https://dummy/departure", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ shipId: "test-ship" }),
+      await system.shipArrival({
+        timestamp: Date.now(),
+        shipId: "test-ship",
+        fromSystem: 1,
+        toSystem: 0,
+        cargo: new Map(),
+        priceInfo: new Map(),
       });
 
-      const response = await system.fetch(departureRequest);
-      expect(response.status).toBe(200);
+      await system.shipDeparture("test-ship");
 
-      const snapshot = await (
-        await system.fetch(new Request("https://dummy/snapshot"))
-      ).json();
-      expect(snapshot.shipsInSystem).not.toContain("test-ship");
+      const snapshot = await system.getSnapshot();
+      expect(Array.from(snapshot.shipsInSystem)).not.toContain("test-ship");
     });
   });
 
   describe("Market Capacity Limits", () => {
     beforeEach(async () => {
-      const initRequest = new Request("https://dummy/initialize", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          id: 0 as SystemId,
-          name: "Test System",
-          population: 10,
-          techLevel: TechLevel.INDUSTRIAL,
-          government: GovernmentType.DEMOCRACY,
-          seed: "test-seed",
-        }),
+      await system.initialize({
+        id: 0 as SystemId,
+        name: "Test System",
+        population: 10,
+        techLevel: TechLevel.INDUSTRIAL,
+        worldType: WorldType.INDUSTRIAL,
+        seed: "test-seed",
       });
-      await system.fetch(initRequest);
 
-      await system.fetch(new Request("https://dummy/arrival", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          timestamp: Date.now(),
-          shipId: "test-ship",
-          fromSystem: 0,
-          toSystem: 0,
-          cargo: [],
-          priceInfo: [],
-        }),
-      }));
+      await system.shipArrival({
+        timestamp: Date.now(),
+        shipId: "test-ship",
+        fromSystem: 0,
+        toSystem: 0,
+        cargo: new Map(),
+        priceInfo: new Map(),
+      });
     });
 
     it("should allow selling beyond the old capacity limit", async () => {
-      const snapshot = await (await system.fetch(new Request("https://dummy/snapshot"))).json();
-      const currentInventory = snapshot.markets.food?.inventory || 0;
+      const snapshot = await system.getSnapshot();
+      const currentInventory = snapshot.markets.get("food")?.inventory || 0;
       const sellQuantity = 15000;
-      const tradeRequest = new Request("https://dummy/trade", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          shipId: "test-ship",
-          goodId: "food",
-          quantity: sellQuantity,
-          type: "sell",
-        }),
+      const result = await system.trade({
+        shipId: "test-ship",
+        goodId: "food",
+        quantity: sellQuantity,
+        type: "sell",
       });
 
-      const response = await system.fetch(tradeRequest);
-      expect(response.status).toBe(200);
-      
-      const data = await response.json();
-      expect(data.quantity).toBe(sellQuantity);
-      expect(data.newInventory).toBeCloseTo(currentInventory + sellQuantity);
+      expect(result.success).toBe(true);
+      expect(result.quantity).toBe(sellQuantity);
+      expect(result.newInventory).toBeCloseTo(currentInventory + sellQuantity);
     });
 
     it("should allow inventory to exceed the old cap", async () => {
-      const snapshot = await (await system.fetch(new Request("https://dummy/snapshot"))).json();
-      const currentInventory = snapshot.markets.food?.inventory || 0;
+      const snapshot = await system.getSnapshot();
+      const currentInventory = snapshot.markets.get("food")?.inventory || 0;
       if (currentInventory > 10000) {
         expect(currentInventory).toBeGreaterThan(10000);
         return;
       }
 
       const sellQuantity = Math.max(1, 10001 - currentInventory);
-      const tradeRequest = new Request("https://dummy/trade", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          shipId: "test-ship",
-          goodId: "food",
-          quantity: sellQuantity,
-          type: "sell",
-        }),
+      await system.trade({
+        shipId: "test-ship",
+        goodId: "food",
+        quantity: sellQuantity,
+        type: "sell",
       });
 
-      const response = await system.fetch(tradeRequest);
-      expect(response.status).toBe(200);
-
-      const snapshotAfter = await (await system.fetch(new Request("https://dummy/snapshot"))).json();
-      expect(snapshotAfter.markets.food.inventory).toBeGreaterThan(10000);
+      const snapshotAfter = await system.getSnapshot();
+      expect(snapshotAfter.markets.get("food")?.inventory).toBeGreaterThan(10000);
     });
   });
 
   describe("Price Dynamics and Monetary Validation", () => {
     beforeEach(async () => {
-      const initRequest = new Request("https://dummy/initialize", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          id: 0 as SystemId,
-          name: "Test System",
-          population: 10,
-          techLevel: TechLevel.INDUSTRIAL,
-          government: GovernmentType.DEMOCRACY,
-          seed: "test-seed",
-        }),
+      await system.initialize({
+        id: 0 as SystemId,
+        name: "Test System",
+        population: 10,
+        techLevel: TechLevel.INDUSTRIAL,
+        worldType: WorldType.INDUSTRIAL,
+        seed: "test-seed",
       });
-      await system.fetch(initRequest);
 
-      await system.fetch(new Request("https://dummy/arrival", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          timestamp: Date.now(),
-          shipId: "test-ship",
-          fromSystem: 0,
-          toSystem: 0,
-          cargo: [],
-          priceInfo: [],
-        }),
-      }));
+      await system.shipArrival({
+        timestamp: Date.now(),
+        shipId: "test-ship",
+        fromSystem: 0,
+        toSystem: 0,
+        cargo: new Map(),
+        priceInfo: new Map(),
+      });
     });
 
     it("should calculate total cost correctly for buys", async () => {
-      const snapshot = await (await system.fetch(new Request("https://dummy/snapshot"))).json();
-      const price = snapshot.markets.food.price;
+      const snapshot = await system.getSnapshot();
+      const price = snapshot.markets.get("food")?.price || 0;
       const quantity = 10;
       const taxRate = 0.03;
       const expectedCost = price * quantity * (1 + taxRate);
 
-      const tradeRequest = new Request("https://dummy/trade", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
+      const result = await system.trade({
+        shipId: "test-ship",
+        goodId: "food",
+        quantity,
+        type: "buy",
+      });
+      
+      expect(result.success).toBe(true);
+      expect(result.totalCost).toBe(expectedCost);
+      expect(result.price).toBe(price);
+    });
+
+    it("should calculate total value correctly for sells", async () => {
+      const snapshot = await system.getSnapshot();
+      const price = snapshot.markets.get("food")?.price || 0;
+      const quantity = 10;
+
+      const result = await system.trade({
+        shipId: "test-ship",
+        goodId: "food",
+        quantity,
+        type: "sell",
+      });
+      
+      expect(result.success).toBe(true);
+      expect(result.totalValue).toBe(price * quantity);
+      expect(result.price).toBe(price);
+    });
+
+    it("should update inventory correctly after buy", async () => {
+      const snapshot1 = await system.getSnapshot();
+      const initialInventory = snapshot1.markets.get("food")?.inventory || 0;
+      const quantity = Math.min(10, initialInventory);
+
+      if (quantity > 0) {
+        await system.trade({
           shipId: "test-ship",
           goodId: "food",
           quantity,
           type: "buy",
-        }),
-      });
+        });
 
-      const response = await system.fetch(tradeRequest);
-      const data = await response.json();
-      
-      expect(data.success).toBe(true);
-      expect(data.totalCost).toBe(expectedCost);
-      expect(data.price).toBe(price);
-    });
-
-    it("should calculate total value correctly for sells", async () => {
-      const snapshot = await (await system.fetch(new Request("https://dummy/snapshot"))).json();
-      const price = snapshot.markets.food.price;
-      const quantity = 10;
-
-      const tradeRequest = new Request("https://dummy/trade", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          shipId: "test-ship",
-          goodId: "food",
-          quantity,
-          type: "sell",
-        }),
-      });
-
-      const response = await system.fetch(tradeRequest);
-      const data = await response.json();
-      
-      expect(data.success).toBe(true);
-      expect(data.totalValue).toBe(price * quantity);
-      expect(data.price).toBe(price);
-    });
-
-    it("should update inventory correctly after buy", async () => {
-      const snapshot1 = await (await system.fetch(new Request("https://dummy/snapshot"))).json();
-      const initialInventory = snapshot1.markets.food.inventory;
-      const quantity = Math.min(10, initialInventory);
-
-      if (quantity > 0) {
-        await system.fetch(new Request("https://dummy/trade", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            shipId: "test-ship",
-            goodId: "food",
-            quantity,
-            type: "buy",
-          }),
-        }));
-
-        const snapshot2 = await (await system.fetch(new Request("https://dummy/snapshot"))).json();
-        expect(snapshot2.markets.food.inventory).toBe(initialInventory - quantity);
+        const snapshot2 = await system.getSnapshot();
+        expect(snapshot2.markets.get("food")?.inventory).toBe(initialInventory - quantity);
       }
     });
 
     it("should update inventory correctly after sell", async () => {
-      const snapshot1 = await (await system.fetch(new Request("https://dummy/snapshot"))).json();
-      const initialInventory = snapshot1.markets.food.inventory;
+      const snapshot1 = await system.getSnapshot();
+      const initialInventory = snapshot1.markets.get("food")?.inventory || 0;
       const quantity = 10;
 
       if (quantity > 0) {
-        await system.fetch(new Request("https://dummy/trade", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            shipId: "test-ship",
-            goodId: "food",
-            quantity,
-            type: "sell",
-          }),
-        }));
+        await system.trade({
+          shipId: "test-ship",
+          goodId: "food",
+          quantity,
+          type: "sell",
+        });
 
-        const snapshot2 = await (await system.fetch(new Request("https://dummy/snapshot"))).json();
-        expect(snapshot2.markets.food.inventory).toBe(initialInventory + quantity);
+        const snapshot2 = await system.getSnapshot();
+        expect(snapshot2.markets.get("food")?.inventory).toBe(initialInventory + quantity);
       }
     });
   });
 
   describe("Multiple Ship Operations", () => {
     beforeEach(async () => {
-      const initRequest = new Request("https://dummy/initialize", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          id: 0 as SystemId,
-          name: "Test System",
-          population: 10,
-          techLevel: TechLevel.INDUSTRIAL,
-          government: GovernmentType.DEMOCRACY,
-          seed: "test-seed",
-        }),
+      await system.initialize({
+        id: 0 as SystemId,
+        name: "Test System",
+        population: 10,
+        techLevel: TechLevel.INDUSTRIAL,
+        worldType: WorldType.INDUSTRIAL,
+        seed: "test-seed",
       });
-      await system.fetch(initRequest);
     });
 
     it("should handle multiple ships arriving", async () => {
       const shipIds = ["ship-1", "ship-2", "ship-3"];
       
       for (const shipId of shipIds) {
-        await system.fetch(new Request("https://dummy/arrival", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            timestamp: Date.now(),
-            shipId,
-            fromSystem: 1,
-            toSystem: 0,
-            cargo: [],
-            priceInfo: [],
-          }),
-        }));
+        await system.shipArrival({
+          timestamp: Date.now(),
+          shipId,
+          fromSystem: 1,
+          toSystem: 0,
+          cargo: new Map(),
+          priceInfo: new Map(),
+        });
       }
 
-      const snapshot = await (await system.fetch(new Request("https://dummy/snapshot"))).json();
+      const snapshot = await system.getSnapshot();
       for (const shipId of shipIds) {
-        expect(snapshot.shipsInSystem).toContain(shipId);
+        expect(Array.from(snapshot.shipsInSystem)).toContain(shipId);
       }
     });
 
     it("should handle multiple ships departing", async () => {
       const shipIds = ["ship-1", "ship-2"];
       
-      // Add ships
       for (const shipId of shipIds) {
-        await system.fetch(new Request("https://dummy/arrival", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            timestamp: Date.now(),
-            shipId,
-            fromSystem: 1,
-            toSystem: 0,
-            cargo: [],
-            priceInfo: [],
-          }),
-        }));
+        await system.shipArrival({
+          timestamp: Date.now(),
+          shipId,
+          fromSystem: 1,
+          toSystem: 0,
+          cargo: new Map(),
+          priceInfo: new Map(),
+        });
       }
 
-      // Remove ships
       for (const shipId of shipIds) {
-        await system.fetch(new Request("https://dummy/departure", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ shipId }),
-        }));
+        await system.shipDeparture(shipId);
       }
 
-      const snapshot = await (await system.fetch(new Request("https://dummy/snapshot"))).json();
+      const snapshot = await system.getSnapshot();
       for (const shipId of shipIds) {
-        expect(snapshot.shipsInSystem).not.toContain(shipId);
+        expect(Array.from(snapshot.shipsInSystem)).not.toContain(shipId);
       }
     });
   });
 
   describe("Edge Cases", () => {
     beforeEach(async () => {
-      const initRequest = new Request("https://dummy/initialize", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          id: 0 as SystemId,
-          name: "Test System",
-          population: 10,
-          techLevel: TechLevel.INDUSTRIAL,
-          government: GovernmentType.DEMOCRACY,
-          seed: "test-seed",
-        }),
+      await system.initialize({
+        id: 0 as SystemId,
+        name: "Test System",
+        population: 10,
+        techLevel: TechLevel.INDUSTRIAL,
+        worldType: WorldType.INDUSTRIAL,
+        seed: "test-seed",
       });
-      await system.fetch(initRequest);
     });
 
     it("should reject buying zero quantity", async () => {
-      const tradeRequest = new Request("https://dummy/trade", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          shipId: "test-ship",
-          goodId: "food",
-          quantity: 0,
-          type: "buy",
-        }),
+      const result = await system.trade({
+        shipId: "test-ship",
+        goodId: "food",
+        quantity: 0,
+        type: "buy",
       });
-
-      const response = await system.fetch(tradeRequest);
       // Should handle gracefully (may succeed with 0 cost or reject)
-      expect([200, 400]).toContain(response.status);
+      expect(result.success === false || result.totalCost === 0).toBe(true);
     });
 
     it("should handle buying negative quantity", async () => {
-      const tradeRequest = new Request("https://dummy/trade", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          shipId: "test-ship",
-          goodId: "food",
-          quantity: -10,
-          type: "buy",
-        }),
+      const result = await system.trade({
+        shipId: "test-ship",
+        goodId: "food",
+        quantity: -10,
+        type: "buy",
       });
-
-      const response = await system.fetch(tradeRequest);
-      // System may accept negative quantity (which would result in selling) or reject it
-      // The important thing is it doesn't crash
-      expect([200, 400, 500]).toContain(response.status);
+      // System should reject negative quantity
+      expect(result.success).toBe(false);
     });
 
     it("should handle nonexistent good IDs", async () => {
-      const tradeRequest = new Request("https://dummy/trade", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          shipId: "test-ship",
-          goodId: "nonexistent-good-12345",
-          quantity: 10,
-          type: "buy",
-        }),
+      const result = await system.trade({
+        shipId: "test-ship",
+        goodId: "nonexistent-good-12345",
+        quantity: 10,
+        type: "buy",
       });
-
-      const response = await system.fetch(tradeRequest);
-      expect(response.status).toBe(400);
+      expect(result.success).toBe(false);
+      expect(result.error).toBeDefined();
     });
 
     it("should handle state persistence across ticks", async () => {
-      const snapshot1 = await (await system.fetch(new Request("https://dummy/snapshot"))).json();
-      const tick1 = snapshot1.state.currentTick;
+      const snapshot1 = await system.getSnapshot();
+      const tick1 = snapshot1.state?.currentTick || 0;
 
-      await system.fetch(new Request("https://dummy/tick", { method: "POST" }));
+      await system.tick();
 
-      const snapshot2 = await (await system.fetch(new Request("https://dummy/snapshot"))).json();
-      expect(snapshot2.state.currentTick).toBeGreaterThanOrEqual(tick1);
+      const snapshot2 = await system.getSnapshot();
+      expect(snapshot2.state?.currentTick).toBeGreaterThanOrEqual(tick1);
       expect(snapshot2.markets).toBeDefined();
     });
   });
@@ -797,35 +562,218 @@ describe("StarSystem", () => {
 
     it("should handle errors gracefully", async () => {
       // Try to get state before initialization
-      const request = new Request("https://dummy/state");
-      const response = await system.fetch(request);
+      const state = await system.getState();
       // Should return state (null) or handle gracefully
-      expect(response.status).toBe(200);
+      expect(state === null || state !== undefined).toBe(true);
     });
 
     it("should handle invalid trade requests", async () => {
-      const initRequest = new Request("https://dummy/initialize", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          id: 0 as SystemId,
-          name: "Test System",
-          population: 10,
-          techLevel: TechLevel.INDUSTRIAL,
-          government: GovernmentType.DEMOCRACY,
-          seed: "test-seed",
-        }),
-      });
-      await system.fetch(initRequest);
-
-      const invalidRequest = new Request("https://dummy/trade", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({}), // Missing required fields
+      await system.initialize({
+        id: 0 as SystemId,
+        name: "Test System",
+        population: 10,
+        techLevel: TechLevel.INDUSTRIAL,
+        worldType: WorldType.INDUSTRIAL,
+        seed: "test-seed",
       });
 
-      const response = await system.fetch(invalidRequest);
-      expect([400, 500]).toContain(response.status);
+      // @ts-expect-error - Testing invalid input
+      const result = await system.trade({});
+      expect(result.success).toBe(false);
+      expect(result.error).toBeDefined();
+    });
+  });
+
+  describe("Delivery Jobs", () => {
+    it("should handle undefined destSystem in generateDeliveryJobs gracefully", async () => {
+      await system.initialize({
+        id: 0 as SystemId,
+        name: "Test System",
+        population: 10,
+        techLevel: TechLevel.INDUSTRIAL,
+        worldType: WorldType.TRADE_HUB,
+        seed: "test-seed-delivery",
+        x: 0,
+        y: 0,
+      });
+
+      // Mock getReachableSystems to return array with undefined element
+      vi.spyOn(system, 'getReachableSystems').mockResolvedValueOnce([
+        { id: 1 as SystemId, distance: 5 },
+        undefined as unknown as { id: SystemId; distance: number },
+        { id: 2 as SystemId, distance: 10 },
+      ]);
+
+      // Advance tick to trigger delivery job generation (every 10 ticks)
+      for (let i = 0; i < 12; i++) {
+        await system.tick();
+      }
+
+      // Should not crash - verify system is still functional
+      const state = await system.getState();
+      expect(state).toBeDefined();
+      
+      // Restore original method
+      vi.restoreAllMocks();
+    });
+
+    it("should handle empty reachableSystems array in generateDeliveryJobs", async () => {
+      await system.initialize({
+        id: 0 as SystemId,
+        name: "Test System",
+        population: 10,
+        techLevel: TechLevel.INDUSTRIAL,
+        worldType: WorldType.TRADE_HUB,
+        seed: "test-seed-empty",
+        x: 0,
+        y: 0,
+      });
+
+      // Mock getReachableSystems to return empty array
+      vi.spyOn(system, 'getReachableSystems').mockResolvedValueOnce([]);
+
+      // Advance tick to trigger delivery job generation
+      for (let i = 0; i < 12; i++) {
+        await system.tick();
+      }
+
+      // Should not crash - verify system is still functional
+      const state = await system.getState();
+      expect(state).toBeDefined();
+      
+      vi.restoreAllMocks();
+    });
+
+    it("should handle destSystem with missing distance property", async () => {
+      await system.initialize({
+        id: 0 as SystemId,
+        name: "Test System",
+        population: 10,
+        techLevel: TechLevel.INDUSTRIAL,
+        worldType: WorldType.TRADE_HUB,
+        seed: "test-seed-invalid",
+        x: 0,
+        y: 0,
+      });
+
+      // Mock getReachableSystems to return array with invalid element (missing distance)
+      vi.spyOn(system, 'getReachableSystems').mockResolvedValueOnce([
+        { id: 1 as SystemId, distance: 5 },
+        { id: 2 as SystemId } as unknown as { id: SystemId; distance: number },
+      ]);
+
+      // Advance tick to trigger delivery job generation
+      for (let i = 0; i < 12; i++) {
+        await system.tick();
+      }
+
+      // Should not crash - verify system is still functional
+      const state = await system.getState();
+      expect(state).toBeDefined();
+      
+      vi.restoreAllMocks();
+    });
+
+    it("should filter out undefined entries from getReachableSystems result", async () => {
+      await system.initialize({
+        id: 0 as SystemId,
+        name: "Test System",
+        population: 10,
+        techLevel: TechLevel.INDUSTRIAL,
+        worldType: WorldType.TRADE_HUB,
+        seed: "test-seed-filter",
+        x: 0,
+        y: 0,
+      });
+
+      // Mock getReachableSystems to return array with undefined at index 13 (reproducing the crash scenario)
+      const mockSystems: Array<{ id: SystemId; distance: number } | undefined> = [];
+      for (let i = 0; i < 20; i++) {
+        if (i === 13) {
+          mockSystems[i] = undefined;
+        } else {
+          mockSystems[i] = { id: (i + 1) as SystemId, distance: 5 + i };
+        }
+      }
+      
+      vi.spyOn(system, 'getReachableSystems').mockResolvedValueOnce(
+        mockSystems as Array<{ id: SystemId; distance: number }>
+      );
+
+      // Advance tick to trigger delivery job generation
+      for (let i = 0; i < 12; i++) {
+        await system.tick();
+      }
+
+      // Should not crash - verify system is still functional
+      const state = await system.getState();
+      expect(state).toBeDefined();
+      
+      vi.restoreAllMocks();
+    });
+
+    it("should handle randomInt returning out-of-bounds index (reproducing index 9 crash)", async () => {
+      await system.initialize({
+        id: 0 as SystemId,
+        name: "Test System",
+        population: 10,
+        techLevel: TechLevel.INDUSTRIAL,
+        worldType: WorldType.TRADE_HUB,
+        seed: "test-seed-index9",
+        x: 0,
+        y: 0,
+      });
+
+      // Mock getReachableSystems to return exactly 9 valid systems
+      // This tests the case where randomInt might return index 9 when array length is 9
+      const mockSystems: Array<{ id: SystemId; distance: number }> = [];
+      for (let i = 0; i < 9; i++) {
+        mockSystems.push({ id: (i + 1) as SystemId, distance: 5 + i });
+      }
+      
+      vi.spyOn(system, 'getReachableSystems').mockResolvedValueOnce(mockSystems);
+
+      // Advance tick to trigger delivery job generation
+      for (let i = 0; i < 12; i++) {
+        await system.tick();
+      }
+
+      // Should not crash - verify system is still functional
+      const state = await system.getState();
+      expect(state).toBeDefined();
+      
+      vi.restoreAllMocks();
+    });
+
+    it("should handle getReachableSystems returning array with NaN values", async () => {
+      await system.initialize({
+        id: 0 as SystemId,
+        name: "Test System",
+        population: 10,
+        techLevel: TechLevel.INDUSTRIAL,
+        worldType: WorldType.TRADE_HUB,
+        seed: "test-seed-nan",
+        x: 0,
+        y: 0,
+      });
+
+      // Mock getReachableSystems to return array with NaN distance
+      vi.spyOn(system, 'getReachableSystems').mockResolvedValueOnce([
+        { id: 1 as SystemId, distance: 5 },
+        { id: 2 as SystemId, distance: NaN },
+        { id: 3 as SystemId, distance: 10 },
+      ]);
+
+      // Advance tick to trigger delivery job generation
+      for (let i = 0; i < 12; i++) {
+        await system.tick();
+      }
+
+      // Should not crash - verify system is still functional
+      const state = await system.getState();
+      expect(state).toBeDefined();
+      
+      vi.restoreAllMocks();
     });
   });
 });

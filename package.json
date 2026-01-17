@@ -6,12 +6,22 @@
   "scripts": {
     "dev": "tsx watch src/local-server.ts",
     "local:dev": "tsx watch src/local-server.ts",
-    "local:build": "tsc && node dist/local-server.js",
+    "prelocal:build": "npm run type-check",
+    "local:build": "tsc -p tsconfig.build.json",
     "type-check": "tsc --noEmit",
-    "test": "vitest run",
+    "test": "npm run type-check && vitest run",
     "test:watch": "vitest",
-    "test:coverage": "vitest run --coverage",
-    "test:ui": "vitest --ui"
+    "test:coverage": "npm run type-check && vitest run --coverage",
+    "test:ui": "vitest --ui",
+    "prepublishOnly": "npm run type-check",
+    "analyze:economy": "./scripts/run-economy-analysis.sh",
+    "test:economy": "./scripts/test-economy-analysis.sh",
+    "economy:loop": "./scripts/economy-feedback-loop.sh",
+    "container:up": "./container-run.sh up",
+    "container:down": "./container-run.sh down",
+    "container:logs": "./container-run.sh logs",
+    "container:test": "./container-run.sh test",
+    "container:build": "./container-run.sh build"
   },
   "keywords": [
     "simulation",

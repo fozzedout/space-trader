@@ -9,41 +9,24 @@ export interface BalanceConfig {
   maxPriceChangePerTick: number;
   maxPriceMultiplier: number;
   minPriceMultiplier: number;
-  // New parameters for improved economic model
   meanReversionStrength: number;      // 0.01-0.05 (1-5% per tick toward base price)
   marketDepthFactor: number;          // 0.3-1.0 (volatility scaling based on market size)
   transactionImpactMultiplier: number; // 0.01-0.1 (immediate price impact from trades)
   inventoryDampingThreshold: number;  // 0.1-0.2 (buffer zone size for extreme inventory)
   sigmoidSteepness: number;           // 2-5 (non-linear response curve shape)
-  // Trade scoring weights for Smart Scoring system
-  tradeScoringWeights: {
-    profitMargin: number;        // Weight for margin percentage (default 0.3)
-    profitPerCargoSpace: number; // Weight for efficiency (default 0.25)
-    totalProfitPotential: number; // Weight for volume potential (default 0.25)
-    inventoryPressure: number;    // Weight for market need (default 0.2)
-  };
 }
 
 let balanceConfig: BalanceConfig = {
-  priceElasticity: 0.05, // Reduced from 0.1 to make prices less sensitive to inventory changes
+  priceElasticity: 0.05,
   minProfitMargin: 0.001, // 0.1% minimum - allows many small profitable trades (only 3% buy tax, no sell tax)
   maxPriceChangePerTick: 0.001,
   maxPriceMultiplier: 10.0,
   minPriceMultiplier: 0.1,
-  // New defaults
-  meanReversionStrength: 0.05,       // 5% per tick toward base price (increased to pull prices back faster)
+  meanReversionStrength: 0.05,       // 5% per tick toward base price
   marketDepthFactor: 0.5,            // Medium market depth effect
   transactionImpactMultiplier: 0.001, // 0.1% impact from trades
   inventoryDampingThreshold: 0.15,   // 15% buffer zones
   sigmoidSteepness: 3.0,             // Moderate sigmoid curve
-  // Trade scoring weights for Smart Scoring
-  // NPCs prioritize TotalProfit over percentage margin
-  tradeScoringWeights: {
-    profitMargin: 0.0,         // DEPRECATED: No longer using percentage margin
-    profitPerCargoSpace: 0.2,  // 20% weight on efficiency (profit per cargo space)
-    totalProfitPotential: 0.7, // 70% weight on total profit (primary factor)
-    inventoryPressure: 0.1,    // 10% weight on market need (inventory pressure)
-  },
 };
 
 export function getBalanceConfig(): BalanceConfig {
@@ -93,8 +76,4 @@ export function getInventoryDampingThreshold(): number {
 
 export function getSigmoidSteepness(): number {
   return balanceConfig.sigmoidSteepness;
-}
-
-export function getTradeScoringWeights(): BalanceConfig['tradeScoringWeights'] {
-  return { ...balanceConfig.tradeScoringWeights };
 }

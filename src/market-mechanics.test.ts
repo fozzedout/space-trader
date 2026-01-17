@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { StarSystem } from "./star-system";
 import { MockDurableObjectState, createMockEnv } from "./test-utils/mocks";
-import { SystemId, TechLevel, GovernmentType } from "./types";
+import { SystemId, TechLevel } from "./types";
 
 describe("Market Mechanics", () => {
   let system: StarSystem;
@@ -13,82 +13,72 @@ describe("Market Mechanics", () => {
     mockEnv = createMockEnv();
     system = new StarSystem(mockState, mockEnv);
 
-    await system.fetch(new Request("https://dummy/initialize", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        id: 0 as SystemId,
-        name: "Test System",
-        population: 10,
-        techLevel: TechLevel.INDUSTRIAL,
-        government: GovernmentType.DEMOCRACY,
-        seed: "test-seed",
-      }),
-    }));
+    await system.initialize({
+      id: 0 as SystemId,
+      name: "Test System",
+      population: 10,
+      techLevel: TechLevel.INDUSTRIAL,
+      worldType: "industrial" as any,
+      seed: "test-seed",
+    });
 
-    await system.fetch(new Request("https://dummy/arrival", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        timestamp: Date.now(),
-        shipId: "test-ship",
-        fromSystem: 0,
-        toSystem: 0,
-        cargo: [],
-        priceInfo: [],
-      }),
-    }));
+    await system.shipArrival({
+      timestamp: Date.now(),
+      shipId: "test-ship",
+      fromSystem: 0,
+      toSystem: 0,
+      cargo: new Map(),
+      priceInfo: new Map(),
+    });
   });
 
   describe("Market Initialization", () => {
     it("should create markets for all goods", async () => {
-      const snapshot = await (await system.fetch(new Request("https://dummy/snapshot"))).json();
+      const snapshot = await system.getSnapshot();
+      const marketsObj = Object.fromEntries(snapshot.markets.entries());
       
-      expect(snapshot.markets).toBeDefined();
-      const marketKeys = Object.keys(snapshot.markets);
+      expect(marketsObj).toBeDefined();
+      const marketKeys = Object.keys(marketsObj);
       expect(marketKeys.length).toBeGreaterThan(0);
       
       // Check that common goods exist
-      expect(snapshot.markets).toHaveProperty("food");
-      expect(snapshot.markets).toHaveProperty("metals");
+      expect(marketsObj).toHaveProperty("food");
+      expect(marketsObj).toHaveProperty("metals");
     });
 
     it("should set initial prices based on system properties", async () => {
-      const snapshot = await (await system.fetch(new Request("https://dummy/snapshot"))).json();
+      const snapshot = await system.getSnapshot();
       
-      const foodMarket = snapshot.markets.food;
+      const foodMarket = snapshot.markets.get("food");
       expect(foodMarket).toBeDefined();
-      expect(foodMarket.price).toBeGreaterThan(0);
-      expect(typeof foodMarket.price).toBe("number");
+      expect(foodMarket?.price).toBeGreaterThan(0);
+      expect(typeof foodMarket?.price).toBe("number");
     });
 
     it("should set initial inventory", async () => {
-      const snapshot = await (await system.fetch(new Request("https://dummy/snapshot"))).json();
+      const snapshot = await system.getSnapshot();
       
-      const foodMarket = snapshot.markets.food;
-      expect(foodMarket.inventory).toBeGreaterThanOrEqual(0);
-      expect(typeof foodMarket.inventory).toBe("number");
+      const foodMarket = snapshot.markets.get("food");
+      expect(foodMarket?.inventory).toBeGreaterThanOrEqual(0);
+      expect(typeof foodMarket?.inventory).toBe("number");
     });
 
     it("should have production and consumption rates", async () => {
-      const snapshot = await (await system.fetch(new Request("https://dummy/snapshot"))).json();
+      const snapshot = await system.getSnapshot();
       
-      const foodMarket = snapshot.markets.food;
-      expect(foodMarket.production).toBeGreaterThanOrEqual(0);
-      expect(foodMarket.consumption).toBeGreaterThanOrEqual(0);
+      const foodMarket = snapshot.markets.get("food");
+      expect(foodMarket?.production).toBeGreaterThanOrEqual(0);
+      expect(foodMarket?.consumption).toBeGreaterThanOrEqual(0);
     });
   });
 
   describe("Price Dynamics", () => {
     it("should update prices on tick", async () => {
-      const snapshot1 = await (await system.fetch(new Request("https://dummy/snapshot"))).json();
-      const initialPrice = snapshot1.markets.food.price;
-
       // Process tick
-      await system.fetch(new Request("https://dummy/tick", { method: "POST" }));
+      await system.tick();
 
-      const snapshot2 = await (await system.fetch(new Request("https://dummy/snapshot"))).json();
-      const updatedPrice = snapshot2.markets.food.price;
+      const snapshot2 = await system.getSnapshot();
+      const updatedPrice = snapshot2.markets.get("food")?.price;
 
       expect(updatedPrice).toBeDefined();
       expect(typeof updatedPrice).toBe("number");
@@ -96,13 +86,10 @@ describe("Market Mechanics", () => {
     });
 
     it("should update inventory on tick", async () => {
-      const snapshot1 = await (await system.fetch(new Request("https://dummy/snapshot"))).json();
-      const initialInventory = snapshot1.markets.food.inventory;
+      await system.tick();
 
-      await system.fetch(new Request("https://dummy/tick", { method: "POST" }));
-
-      const snapshot2 = await (await system.fetch(new Request("https://dummy/snapshot"))).json();
-      const updatedInventory = snapshot2.markets.food.inventory;
+      const snapshot2 = await system.getSnapshot();
+      const updatedInventory = snapshot2.markets.get("food")?.inventory;
 
       expect(updatedInventory).toBeDefined();
       expect(typeof updatedInventory).toBe("number");
@@ -113,92 +100,75 @@ describe("Market Mechanics", () => {
 
   describe("Trading Impact on Markets", () => {
     it("should reduce inventory when buying", async () => {
-      const snapshot1 = await (await system.fetch(new Request("https://dummy/snapshot"))).json();
-      const initialInventory = snapshot1.markets.food.inventory;
+      const snapshot1 = await system.getSnapshot();
+      const initialInventory = snapshot1.markets.get("food")?.inventory || 0;
 
       if (initialInventory > 0) {
-        const buyResponse = await system.fetch(new Request("https://dummy/trade", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            shipId: "test-ship",
-            goodId: "food",
-            quantity: Math.min(10, initialInventory),
-            type: "buy",
-          }),
-        }));
+        const buyData = await system.trade({
+          shipId: "test-ship",
+          goodId: "food",
+          quantity: Math.min(10, initialInventory),
+          type: "buy",
+        });
 
-        expect(buyResponse.status).toBe(200);
+        expect(buyData.success).toBe(true);
         
-        const snapshot2 = await (await system.fetch(new Request("https://dummy/snapshot"))).json();
-        const updatedInventory = snapshot2.markets.food.inventory;
+        const snapshot2 = await system.getSnapshot();
+        const updatedInventory = snapshot2.markets.get("food")?.inventory || 0;
         
         expect(updatedInventory).toBeLessThan(initialInventory);
       }
     });
 
     it("should increase inventory when selling", async () => {
-      const snapshot1 = await (await system.fetch(new Request("https://dummy/snapshot"))).json();
-      const initialInventory = snapshot1.markets.food.inventory;
+      const snapshot1 = await system.getSnapshot();
+      const initialInventory = snapshot1.markets.get("food")?.inventory || 0;
       const maxCapacity = 1000; // STATION_CAPACITY
 
       if (initialInventory < maxCapacity) {
-        const sellResponse = await system.fetch(new Request("https://dummy/trade", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            shipId: "test-ship",
-            goodId: "food",
-            quantity: 10,
-            type: "sell",
-          }),
-        }));
+        const sellData = await system.trade({
+          shipId: "test-ship",
+          goodId: "food",
+          quantity: 10,
+          type: "sell",
+        });
 
-        expect(sellResponse.status).toBe(200);
+        expect(sellData.success).toBe(true);
         
-        const snapshot2 = await (await system.fetch(new Request("https://dummy/snapshot"))).json();
-        const updatedInventory = snapshot2.markets.food.inventory;
+        const snapshot2 = await system.getSnapshot();
+        const updatedInventory = snapshot2.markets.get("food")?.inventory || 0;
         
         expect(updatedInventory).toBeGreaterThanOrEqual(initialInventory);
       }
     });
 
     it("should reject buying when inventory insufficient", async () => {
-      const snapshot = await (await system.fetch(new Request("https://dummy/snapshot"))).json();
-      const maxInventory = snapshot.markets.food.inventory;
+      const snapshot = await system.getSnapshot();
+      const maxInventory = snapshot.markets.get("food")?.inventory || 0;
 
-      const buyResponse = await system.fetch(new Request("https://dummy/trade", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          shipId: "test-ship",
-          goodId: "food",
-          quantity: maxInventory + 1000,
-          type: "buy",
-        }),
-      }));
+      const result = await system.trade({
+        shipId: "test-ship",
+        goodId: "food",
+        quantity: maxInventory + 1000,
+        type: "buy",
+      });
 
-      expect(buyResponse.status).toBe(400);
+      expect(result.success).toBe(false);
+      expect(result.error).toBeDefined();
     });
 
     it("should allow selling beyond the old capacity limit", async () => {
-      const snapshot = await (await system.fetch(new Request("https://dummy/snapshot"))).json();
-      const currentInventory = snapshot.markets.food.inventory;
+      const snapshot = await system.getSnapshot();
+      const currentInventory = snapshot.markets.get("food")?.inventory || 0;
       const sellQuantity = 2000;
-      const sellResponse = await system.fetch(new Request("https://dummy/trade", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          shipId: "test-ship",
-          goodId: "food",
-          quantity: sellQuantity,
-          type: "sell",
-        }),
-      }));
+      const sellData = await system.trade({
+        shipId: "test-ship",
+        goodId: "food",
+        quantity: sellQuantity,
+        type: "sell",
+      });
 
-      expect(sellResponse.status).toBe(200);
-      const sellData = await sellResponse.json();
-      
+      expect(sellData.success).toBe(true);
       expect(sellData.quantity).toBe(sellQuantity);
       expect(sellData.newInventory).toBeCloseTo(currentInventory + sellQuantity);
     });
@@ -209,104 +179,87 @@ describe("Market Mechanics", () => {
       const system1State = new MockDurableObjectState({ toString: () => "system-1" } as any);
       const system1 = new StarSystem(system1State, mockEnv);
       
-      await system1.fetch(new Request("https://dummy/initialize", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          id: 1 as SystemId,
-          name: "Low Tech",
-          population: 10,
-          techLevel: TechLevel.AGRICULTURAL,
-          government: GovernmentType.DEMOCRACY,
-          seed: "tech-test-1",
-        }),
-      }));
+      await system1.initialize({
+        id: 1 as SystemId,
+        name: "Low Tech",
+        population: 10,
+        techLevel: TechLevel.AGRICULTURAL,
+        worldType: "agricultural" as any,
+        seed: "tech-test-1",
+      });
 
       const system2State = new MockDurableObjectState({ toString: () => "system-2" } as any);
       const system2 = new StarSystem(system2State, mockEnv);
       
-      await system2.fetch(new Request("https://dummy/initialize", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          id: 2 as SystemId,
-          name: "High Tech",
-          population: 10,
-          techLevel: TechLevel.HI_TECH,
-          government: GovernmentType.DEMOCRACY,
-          seed: "tech-test-2",
-        }),
-      }));
+      await system2.initialize({
+        id: 2 as SystemId,
+        name: "High Tech",
+        population: 10,
+        techLevel: TechLevel.HI_TECH,
+        worldType: "high_tech" as any,
+        seed: "tech-test-2",
+      });
 
-      const snapshot1 = await (await system1.fetch(new Request("https://dummy/snapshot"))).json();
-      const snapshot2 = await (await system2.fetch(new Request("https://dummy/snapshot"))).json();
+      const snapshot1 = await system1.getSnapshot();
+      const snapshot2 = await system2.getSnapshot();
 
       // Prices should be different (or at least markets should exist)
-      expect(snapshot1.markets.computers).toBeDefined();
-      expect(snapshot2.markets.computers).toBeDefined();
-      expect(typeof snapshot1.markets.computers.price).toBe("number");
-      expect(typeof snapshot2.markets.computers.price).toBe("number");
+      expect(snapshot1.markets.get("computers")).toBeDefined();
+      expect(snapshot2.markets.get("computers")).toBeDefined();
+      expect(typeof snapshot1.markets.get("computers")?.price).toBe("number");
+      expect(typeof snapshot2.markets.get("computers")?.price).toBe("number");
     });
 
     it("should have different prices for different populations", async () => {
       const system1State = new MockDurableObjectState({ toString: () => "system-3" } as any);
       const system1 = new StarSystem(system1State, mockEnv);
       
-      await system1.fetch(new Request("https://dummy/initialize", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          id: 3 as SystemId,
-          name: "Small Pop",
-          population: 1,
-          techLevel: TechLevel.INDUSTRIAL,
-          government: GovernmentType.DEMOCRACY,
-          seed: "pop-test-1",
-        }),
-      }));
+      await system1.initialize({
+        id: 3 as SystemId,
+        name: "Small Pop",
+        population: 1,
+        techLevel: TechLevel.INDUSTRIAL,
+        worldType: "industrial" as any,
+        seed: "pop-test-1",
+      });
 
       const system2State = new MockDurableObjectState({ toString: () => "system-4" } as any);
       const system2 = new StarSystem(system2State, mockEnv);
       
-      await system2.fetch(new Request("https://dummy/initialize", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          id: 4 as SystemId,
-          name: "Large Pop",
-          population: 100,
-          techLevel: TechLevel.INDUSTRIAL,
-          government: GovernmentType.DEMOCRACY,
-          seed: "pop-test-2",
-        }),
-      }));
+      await system2.initialize({
+        id: 4 as SystemId,
+        name: "Large Pop",
+        population: 100,
+        techLevel: TechLevel.INDUSTRIAL,
+        worldType: "industrial" as any,
+        seed: "pop-test-2",
+      });
 
-      const snapshot1 = await (await system1.fetch(new Request("https://dummy/snapshot"))).json();
-      const snapshot2 = await (await system2.fetch(new Request("https://dummy/snapshot"))).json();
+      const snapshot1 = await system1.getSnapshot();
+      const snapshot2 = await system2.getSnapshot();
 
       // Both should have markets
-      expect(snapshot1.markets.food).toBeDefined();
-      expect(snapshot2.markets.food).toBeDefined();
+      expect(snapshot1.markets.get("food")).toBeDefined();
+      expect(snapshot2.markets.get("food")).toBeDefined();
       // Production/consumption should differ
-      expect(snapshot1.markets.food.production).toBeDefined();
-      expect(snapshot2.markets.food.production).toBeDefined();
+      expect(snapshot1.markets.get("food")?.production).toBeDefined();
+      expect(snapshot2.markets.get("food")?.production).toBeDefined();
     });
   });
 
   describe("Price Elasticity and Market Dynamics", () => {
     it("should adjust prices based on supply and demand", async () => {
-      const snapshot1 = await (await system.fetch(new Request("https://dummy/snapshot"))).json();
-      const initialPrice = snapshot1.markets.food.price;
-      const initialInventory = snapshot1.markets.food.inventory;
+      const snapshot1 = await system.getSnapshot();
+      void snapshot1.markets.get("food");
 
       // Process multiple ticks to allow price adjustment
       for (let i = 0; i < 10; i++) {
-        await system.fetch(new Request("https://dummy/tick", { method: "POST" }));
+        await system.tick();
       }
 
-      const snapshot2 = await (await system.fetch(new Request("https://dummy/snapshot"))).json();
-      const updatedPrice = snapshot2.markets.food.price;
-      const updatedInventory = snapshot2.markets.food.inventory;
+      const snapshot2 = await system.getSnapshot();
+      const updatedPrice = snapshot2.markets.get("food")?.price;
+      const updatedInventory = snapshot2.markets.get("food")?.inventory;
 
       // Prices should be valid numbers
       expect(typeof updatedPrice).toBe("number");
@@ -317,101 +270,88 @@ describe("Market Mechanics", () => {
     });
 
     it("should handle price changes when inventory is depleted", async () => {
-      const snapshot1 = await (await system.fetch(new Request("https://dummy/snapshot"))).json();
-      const initialPrice = snapshot1.markets.food.price;
-      const initialInventory = snapshot1.markets.food.inventory;
+      const snapshot1 = await system.getSnapshot();
+      const initialInventory = snapshot1.markets.get("food")?.inventory || 0;
 
       // Buy all available inventory
       if (initialInventory > 0) {
-        const buyResponse = await system.fetch(new Request("https://dummy/trade", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            shipId: "test-ship",
-            goodId: "food",
-            quantity: initialInventory,
-            type: "buy",
-          }),
-        }));
+        const buyData = await system.trade({
+          shipId: "test-ship",
+          goodId: "food",
+          quantity: initialInventory,
+          type: "buy",
+        });
 
-        expect(buyResponse.status).toBe(200);
+        expect(buyData.success).toBe(true);
 
         // Process tick - price should adjust
-        await system.fetch(new Request("https://dummy/tick", { method: "POST" }));
+        await system.tick();
 
-        const snapshot2 = await (await system.fetch(new Request("https://dummy/snapshot"))).json();
-        expect(snapshot2.markets.food.inventory).toBeGreaterThanOrEqual(0);
-        expect(snapshot2.markets.food.price).toBeGreaterThan(0);
+        const snapshot2 = await system.getSnapshot();
+        expect(snapshot2.markets.get("food")?.inventory).toBeGreaterThanOrEqual(0);
+        expect(snapshot2.markets.get("food")?.price).toBeGreaterThan(0);
       }
     });
 
     it("should handle price changes when inventory is high", async () => {
-      const snapshot1 = await (await system.fetch(new Request("https://dummy/snapshot"))).json();
-      const currentInventory = snapshot1.markets.food.inventory;
+      const snapshot1 = await system.getSnapshot();
+      const currentInventory = snapshot1.markets.get("food")?.inventory || 0;
       const sellQuantity = 5000;
 
-      await system.fetch(new Request("https://dummy/trade", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          shipId: "test-ship",
-          goodId: "food",
-          quantity: sellQuantity,
-          type: "sell",
-        }),
-      }));
+      await system.trade({
+        shipId: "test-ship",
+        goodId: "food",
+        quantity: sellQuantity,
+        type: "sell",
+      });
 
       // Process tick - price should adjust
-      await system.fetch(new Request("https://dummy/tick", { method: "POST" }));
+      await system.tick();
 
-      const snapshot2 = await (await system.fetch(new Request("https://dummy/snapshot"))).json();
-      expect(snapshot2.markets.food.inventory).toBeGreaterThanOrEqual(currentInventory);
-      expect(snapshot2.markets.food.price).toBeGreaterThan(0);
+      const snapshot2 = await system.getSnapshot();
+      expect(snapshot2.markets.get("food")?.inventory).toBeGreaterThanOrEqual(currentInventory);
+      expect(snapshot2.markets.get("food")?.price).toBeGreaterThan(0);
     });
   });
 
   describe("Edge Cases", () => {
     it("should handle markets with zero inventory", async () => {
-      const snapshot = await (await system.fetch(new Request("https://dummy/snapshot"))).json();
+      const snapshot = await system.getSnapshot();
       
       // Find a market with inventory
-      const goodWithInventory = Object.keys(snapshot.markets).find(
-        goodId => snapshot.markets[goodId].inventory > 0
+      const goodWithInventory = Array.from(snapshot.markets.keys()).find(
+        goodId => (snapshot.markets.get(goodId)?.inventory || 0) > 0
       );
 
       if (goodWithInventory) {
-        const market = snapshot.markets[goodWithInventory];
-        const quantity = market.inventory;
+        const market = snapshot.markets.get(goodWithInventory);
+        const quantity = market?.inventory || 0;
 
         // Buy all inventory
-        await system.fetch(new Request("https://dummy/trade", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            shipId: "test-ship",
-            goodId: goodWithInventory,
-            quantity,
-            type: "buy",
-          }),
-        }));
+        await system.trade({
+          shipId: "test-ship",
+          goodId: goodWithInventory,
+          quantity,
+          type: "buy",
+        });
 
         // Market should still exist with zero inventory
-        const snapshot2 = await (await system.fetch(new Request("https://dummy/snapshot"))).json();
-        expect(snapshot2.markets[goodWithInventory]).toBeDefined();
-        expect(snapshot2.markets[goodWithInventory].inventory).toBe(0);
-        expect(snapshot2.markets[goodWithInventory].price).toBeGreaterThan(0);
+        const snapshot2 = await system.getSnapshot();
+        expect(snapshot2.markets.get(goodWithInventory)).toBeDefined();
+        expect(snapshot2.markets.get(goodWithInventory)?.inventory).toBe(0);
+        expect(snapshot2.markets.get(goodWithInventory)?.price).toBeGreaterThan(0);
       }
     });
 
     it("should maintain price consistency across ticks", async () => {
-      const snapshot1 = await (await system.fetch(new Request("https://dummy/snapshot"))).json();
-      const price1 = snapshot1.markets.food.price;
+      const snapshot1 = await system.getSnapshot();
+      const price1 = snapshot1.markets.get("food")?.price || 0;
 
       // Process tick
-      await system.fetch(new Request("https://dummy/tick", { method: "POST" }));
+      await system.tick();
 
-      const snapshot2 = await (await system.fetch(new Request("https://dummy/snapshot"))).json();
-      const price2 = snapshot2.markets.food.price;
+      const snapshot2 = await system.getSnapshot();
+      const price2 = snapshot2.markets.get("food")?.price || 0;
 
       // Prices should be valid numbers (may change but should be consistent)
       expect(typeof price1).toBe("number");

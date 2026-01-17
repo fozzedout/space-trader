@@ -2,6 +2,8 @@
  * Test utilities and mocks for local simulation objects
  */
 
+import type { DurableObjectId } from "../durable-object-types";
+
 export class MockDurableObjectStorage {
   private data: Map<string, any> = new Map();
 
@@ -42,6 +44,7 @@ export class MockDurableObjectStorage {
 
   async setAlarm(scheduledTime: number | Date): Promise<void> {
     // Mock implementation
+    void scheduledTime;
   }
 
   async deleteAlarm(): Promise<void> {
@@ -101,7 +104,7 @@ export function createMockEnv(): any {
   return {
     STAR_SYSTEM: new MockDurableObjectNamespace(),
     SHIP: new MockDurableObjectNamespace(),
-    GALAXY_SIZE: "256",
+    GALAXY_SIZE: "20",
     TICK_INTERVAL_MS: "60000",
     MAX_NPC_TRADERS_PER_SYSTEM: "50",
   };

@@ -17,3 +17,10 @@ dist/
 *.service
 logs/
 node-modules/
+# Container data
+data/
+# Container logs (if mounted)
+container-logs/
+# Economy analysis data and reports
+economy-data/
+economy-reports/

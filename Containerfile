@@ -13,6 +13,17 @@ RUN npm install
 # Copy app
 COPY . .
 
-EXPOSE 3000
-CMD ["npm", "run", "dev"]
+# Verify type checking passes before building
+RUN npm run type-check
+
+# Build for production
+RUN npm run local:build
+
+# Set default port
+ENV PORT=3001
+
+EXPOSE 3001
+
+# Run production build by default, but allow override
+CMD ["node", "dist/local-server.js"]
 

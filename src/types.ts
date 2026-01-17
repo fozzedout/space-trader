@@ -7,15 +7,6 @@ export type ShipId = string;
 export type GoodId = string;
 export type Timestamp = number; // milliseconds since epoch
 
-export enum GovernmentType {
-  ANARCHY = "anarchy",
-  CORPORATE = "corporate",
-  DEMOCRACY = "democracy",
-  DICTATORSHIP = "dictatorship",
-  FEUDAL = "feudal",
-  MULTI_GOVERNMENT = "multi_government",
-}
-
 export enum TechLevel {
   AGRICULTURAL = 1,
   MEDIEVAL = 2,
@@ -41,7 +32,6 @@ export interface SystemState {
   population: number; // millions
   techLevel: TechLevel;
   worldType: WorldType; // Economic specialization
-  government: GovernmentType;
   seed: string; // RNG seed for deterministic simulation
   lastTickTime: Timestamp;
   currentTick: number;
@@ -68,21 +58,7 @@ export interface MarketRequest {
 
 export type ShipPhase = 
   | "at_station" // Ship is at station and can trade
-  | "departing" // Ship is leaving planet's influence (~10s)
-  | "in_hyperspace" // Ship is traveling between systems
-  | "arriving" // Ship is flying from spawn point to station (~60s)
-  | "resting" // NPC is resting at station (5-60 minutes) - ignored in tick calculations
-  | "sleeping"; // NPC is sleeping at station (up to 12 hours) - ignored in tick calculations
-
-export type LaserMount = "front" | "rear" | "left" | "right";
-export type LaserType = "pulse" | "beam" | "military";
-
-export interface ShipArmaments {
-  lasers: Record<LaserMount, LaserType | null>;
-  missiles: number;
-  ecm: boolean;
-  energyBomb: boolean;
-}
+  | "traveling"; // Ship is traveling between systems
 
 export interface ShipState {
   id: ShipId;
@@ -90,38 +66,13 @@ export interface ShipState {
   currentSystem: SystemId | null;
   destinationSystem: SystemId | null;
   phase: ShipPhase;
-  positionX: number | null; // ship position in SU relative to station
-  positionY: number | null; // ship position in SU relative to station
-  arrivalStartX: number | null; // arrival spawn point X in SU
-  arrivalStartY: number | null; // arrival spawn point Y in SU
-  departureStartTime: Timestamp | null; // When departure phase started
-  hyperspaceStartTime: Timestamp | null; // When hyperspace travel started
-  arrivalStartTime: Timestamp | null; // When arrival phase started
-  arrivalCompleteTime: Timestamp | null; // When ship reaches station
-  restStartTime: Timestamp | null; // When rest/sleep started
-  restEndTime: Timestamp | null; // When rest/sleep ends
   cargo: Map<GoodId, number>; // good -> quantity
   purchasePrices: Map<GoodId, number>; // good -> purchase price per unit (for profit calculation)
   credits: number;
   isNPC: boolean;
   seed: string; // RNG seed for deterministic behavior
-  armaments: ShipArmaments;
-  fuelLy: number;
-  fuelCapacityLy: number;
-  hullIntegrity: number;
-  hullMax: number;
-  originSystem: SystemId | null; // System ship departed from (for arrival metadata)
-  originPriceInfo: Array<[GoodId, number]> | null; // Prices from origin system (for arrival effects)
-  chosenDestinationSystemId: SystemId | null; // Planned profitable destination when cargo was purchased
-  navigationTargetSystemId: SystemId | null; // Long-range navigation target (multi-hop)
-  expectedMarginAtChoiceTime: number | null; // Expected profit margin (%) when destination was chosen
-  expectedPurchasePriceAtChoiceTime: number | null; // Purchase price per unit used for expected margin calculation
-  // Lifecycle tracking for NPC culling
-  immobileTicks: number; // Consecutive ticks where trader cannot afford fuel to cheapest neighbor
-  lastSuccessfulTradeTick: number; // Last tick where a successful sell completed
-  lastSuccessfulTradeDecisionCount: number; // Decision count at last successful sell
-  decisionCount: number; // Total number of trading decisions made (for stagnation tracking)
-  lastCargoPurchaseTick: number | null; // Tick when cargo was last purchased (for max hold time)
+  travelStartTime: Timestamp | null; // When travel started (for traveling phase)
+  lastTradeTick: number; // Last tick where a trade occurred (for culling)
 }
 
 export interface SystemSnapshot {
@@ -148,3 +99,4 @@ export interface ShipArrivalEvent {
   cargo: Map<GoodId, number>;
   priceInfo: Map<GoodId, number>; // prices from origin system
 }
+

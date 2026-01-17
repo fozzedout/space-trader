@@ -13,38 +13,24 @@ import {
   SystemState,
   SystemId,
   MarketState,
-  MarketRequest,
   ShipId,
   GoodId,
-  Timestamp,
   ShipArrivalEvent,
-  TradeEvent,
   SystemSnapshot,
   TechLevel,
-  GovernmentType,
   WorldType,
 } from "./types";
+import { getTickIntervalMs } from "./simulation-config";
 import { getGoodDefinition, getAllGoodIds, isSpecializedGood } from "./goods";
 import { getPriceMultiplier } from "./economy-roles";
 import { 
-  getPriceElasticity, 
   getMaxPriceMultiplier, 
-  getMinPriceMultiplier,
-  getMeanReversionStrength
+  getMinPriceMultiplier
 } from "./balance-config";
-import { logTrade, getTradeLogs } from "./trade-logging";
-import { DO_INTERNAL } from "./durable-object-helpers";
-import { updateRequestRegistry } from "./request-registry";
-import * as fs from "fs";
-import * as path from "path";
+import type { DurableObjectNamespace, DurableObjectState, DurableObjectStorage } from "./durable-object-types";
 
-const TICK_INTERVAL_MS = 30000; // 30 seconds per tick (increased to allow time for processing all ships between ticks)
-const STATION_CAPACITY = 10000; // max inventory per good
-const SALES_TAX_RATE = 0.03; // 3% tax on purchases only (no tax on sales)
-const REQUEST_LOW_RATIO = 0.5;
-const REQUEST_TARGET_RATIO = 0.8;
-const REQUEST_MIN_BONUS_RATE = 0.1;
-const REQUEST_MAX_BONUS_RATE = 0.4;
+const TICK_INTERVAL_MS = getTickIntervalMs();
+const SALES_TAX_RATE = 0.03;
 
 // Track if we've detected zero inventory and stopped logging
 let zeroInventoryDetected = false;
@@ -67,7 +53,8 @@ interface StarSystemEnv {
 }
 
 export class StarSystem {
-  private state: DurableObjectState;
+  private storage: DurableObjectStorage;
+  private id: string;
   private env: StarSystemEnv;
   private systemState: SystemState | null = null;
   private markets: Map<GoodId, MarketState> = new Map();
@@ -75,8 +62,17 @@ export class StarSystem {
   private pendingArrivals: ShipArrivalEvent[] = [];
   private dirty: boolean = false; // Track if state needs to be flushed to DB
 
-  constructor(state: DurableObjectState, env: StarSystemEnv) {
-    this.state = state;
+  constructor(stateOrStorage: DurableObjectState | DurableObjectStorage, env: StarSystemEnv, id?: string) {
+    // Support both old (DurableObjectState) and new (DurableObjectStorage + id) signatures
+    if ('storage' in stateOrStorage && 'id' in stateOrStorage) {
+      // Old signature: DurableObjectState
+      this.storage = stateOrStorage.storage;
+      this.id = stateOrStorage.id.toString();
+    } else {
+      // New signature: DurableObjectStorage + id
+      this.storage = stateOrStorage as DurableObjectStorage;
+      this.id = id || 'unknown';
+    }
     this.env = env;
   }
 
@@ -103,9 +99,14 @@ export class StarSystem {
       }
 
       if (path === "/state" && requestObj.method === "GET") {
-        return this.handleGetState();
+        return new Response(JSON.stringify(await this.getState()), { headers: { "Content-Type": "application/json" } });
       } else if (path === "/snapshot" && requestObj.method === "GET") {
-        return this.handleGetSnapshot();
+        const snapshot = await this.getSnapshot();
+        return new Response(JSON.stringify(snapshot, (key, value) => {
+          void key;
+          if (value instanceof Map) return Object.fromEntries(value);
+          return value;
+        }), { headers: { "Content-Type": "application/json" } });
       } else if (path === "/reachable-systems" && requestObj.method === "GET") {
         return this.handleGetReachableSystems();
       } else if (path === "/tick" && requestObj.method === "POST") {
@@ -137,7 +138,7 @@ export class StarSystem {
   }
 
   private async loadState(): Promise<void> {
-    const stored = await this.state.storage.get<{
+    const stored = await this.storage.get<{
       systemState: SystemState;
       markets: Array<[GoodId, MarketState]>;
       shipsInSystem: ShipId[];
@@ -150,13 +151,13 @@ export class StarSystem {
       this.shipsInSystem = new Set(stored.shipsInSystem || []);
       // Convert pending arrivals from array format to ShipArrivalEvent format
       if (stored.pendingArrivals) {
-        this.pendingArrivals = stored.pendingArrivals.map(arr => ({
+        this.pendingArrivals = stored.pendingArrivals.map((arr: { timestamp: number; shipId: string; fromSystem: number; toSystem: number; cargo?: Array<[string, number]> | Map<string, number>; priceInfo?: Array<[string, number]> | Map<string, number> }) => ({
           timestamp: arr.timestamp,
           shipId: arr.shipId,
           fromSystem: arr.fromSystem,
           toSystem: arr.toSystem,
-          cargo: new Map(arr.cargo || []),
-          priceInfo: new Map(arr.priceInfo || []),
+          cargo: arr.cargo instanceof Map ? arr.cargo : new Map(arr.cargo || []),
+          priceInfo: arr.priceInfo instanceof Map ? arr.priceInfo : new Map(arr.priceInfo || []),
         }));
       }
     }
@@ -169,14 +170,6 @@ export class StarSystem {
   }
 
   /**
-   * Mark state as dirty (needs saving to DB)
-   * Actual DB write happens via flushState() or periodic flush
-   */
-  private async saveState(): Promise<void> {
-    this.dirty = true;
-  }
-
-  /**
    * Flush state to database (called periodically or on request)
    * This now just marks the data as ready for batch flush
    */
@@ -184,7 +177,7 @@ export class StarSystem {
     if (!this.dirty || !this.systemState) return;
     
     // Store data in storage for batch flush
-    await this.state.storage.put("state", {
+    await this.storage.put("state", {
       systemState: this.systemState!,
       markets: Array.from(this.markets.entries()),
       shipsInSystem: Array.from(this.shipsInSystem),
@@ -202,18 +195,28 @@ export class StarSystem {
     this.dirty = false;
   }
 
-  private async handleInitialize(request: Request): Promise<Response> {
-    const body = (await request.json()) as {
-      id: SystemId;
-      name: string;
-      population: number;
-      techLevel: TechLevel;
-      worldType: WorldType;
-      government: GovernmentType;
-      seed: string;
-      x?: number;
-      y?: number;
-    };
+  /**
+   * Initialize the star system with given parameters
+   * @param params - System initialization parameters
+   * @param params.id - System ID
+   * @param params.name - System name
+   * @param params.population - Population in millions
+   * @param params.techLevel - Technology level
+   * @param params.worldType - World type (affects production/consumption)
+   * @param params.seed - RNG seed for deterministic simulation
+   * @param params.x - X coordinate (optional)
+   * @param params.y - Y coordinate (optional)
+   */
+  async initialize(params: {
+    id: SystemId;
+    name: string;
+    population: number;
+    techLevel: TechLevel;
+    worldType: WorldType;
+    seed: string;
+    x?: number;
+    y?: number;
+  }): Promise<void> {
 
     // Allow reinitialization - clear existing state if present
     if (this.systemState) {
@@ -230,22 +233,21 @@ export class StarSystem {
     zeroInventoryGood = null;
 
     this.systemState = {
-      id: body.id,
-      name: body.name,
-      population: body.population,
-      techLevel: body.techLevel,
-      worldType: body.worldType,
-      government: body.government,
-      seed: body.seed,
+      id: params.id,
+      name: params.name,
+      population: params.population,
+      techLevel: params.techLevel,
+      worldType: params.worldType,
+      seed: params.seed,
       lastTickTime: Date.now(),
       currentTick: 0,
-      x: body.x ?? 0,
-      y: body.y ?? 0,
+      x: params.x ?? 0,
+      y: params.y ?? 0,
     };
 
     // Initialize markets for all goods - all systems can buy/sell everything
     // Systems that can't consume a good will have very low prices (not worth selling to)
-    const rng = new DeterministicRNG(body.seed);
+    const rng = new DeterministicRNG(params.seed);
     
     for (const goodId of getAllGoodIds()) {
       const good = getGoodDefinition(goodId);
@@ -327,12 +329,35 @@ export class StarSystem {
     }
     // Remove processed arrivals
     this.pendingArrivals = this.pendingArrivals.filter(a => a.timestamp > now);
+  }
 
-    this.refreshRequestRegistry();
-
+  private async handleInitialize(request: Request): Promise<Response> {
+    const body = (await request.json()) as {
+      id: SystemId;
+      name: string;
+      population: number;
+      techLevel: TechLevel;
+      worldType: WorldType;
+      seed: string;
+      x?: number;
+      y?: number;
+    };
+    await this.initialize(body);
     return new Response(JSON.stringify({ success: true }), {
       headers: { "Content-Type": "application/json" },
     });
+  }
+
+  /**
+   * Reset all markets to initial state (inventory: 2000, price: basePrice)
+   */
+  async resetMarkets(): Promise<void> {
+    if (!this.systemState) throw new Error("System not initialized");
+    for (const [, market] of this.markets.entries()) {
+      market.inventory = 2000;
+      market.price = market.basePrice;
+    }
+    this.dirty = true;
   }
 
   private async handleResetMarkets(): Promise<Response> {
@@ -344,51 +369,38 @@ export class StarSystem {
     }
 
     // Reset all markets: inventory to 2000, price to basePrice
-    for (const [goodId, market] of this.markets.entries()) {
+    for (const [, market] of this.markets.entries()) {
       market.inventory = 2000;
       market.price = market.basePrice;
     }
 
     this.dirty = true; // Mark as dirty - will be flushed at end of tick
-    this.refreshRequestRegistry();
 
     return new Response(JSON.stringify({ success: true }), {
       headers: { "Content-Type": "application/json" },
     });
   }
 
-  private async handleGetState(): Promise<Response> {
-    return new Response(JSON.stringify(this.systemState), {
-      headers: { "Content-Type": "application/json" },
-    });
+  /**
+   * Get the current system state
+   * @returns System state or null if not initialized
+   */
+  async getState(): Promise<SystemState | null> {
+    if (!this.systemState) await this.loadState();
+    return this.systemState;
   }
 
-  private async handleGetSnapshot(): Promise<Response> {
-    const marketsWithRequests = new Map<GoodId, MarketState>();
-    for (const [goodId, market] of this.markets.entries()) {
-      const request = this.getMarketRequest(market);
-      marketsWithRequests.set(goodId, {
-        ...market,
-        request,
-      });
-    }
-
-    const snapshot: SystemSnapshot = {
+  /**
+   * Get a complete snapshot of the system including state, markets, and ships
+   * @returns System snapshot with all current data
+   */
+  async getSnapshot(): Promise<SystemSnapshot> {
+    if (!this.systemState) await this.loadState();
+    return {
       state: this.systemState!,
-      markets: marketsWithRequests,
+      markets: this.markets,
       shipsInSystem: Array.from(this.shipsInSystem),
     };
-
-    this.refreshRequestRegistry();
-
-    return new Response(JSON.stringify(snapshot, (key, value) => {
-      if (value instanceof Map) {
-        return Object.fromEntries(value);
-      }
-      return value;
-    }), {
-      headers: { "Content-Type": "application/json" },
-    });
   }
 
   private async getOtherSystemCoords(otherSystemId: SystemId): Promise<{ x: number; y: number } | null> {
@@ -397,7 +409,6 @@ export class StarSystem {
       const otherSystemObj = this.env.STAR_SYSTEM.get(otherSystemStub);
       
       // Try to call getCoordinates directly (works in local mode)
-      let usedDirectCall = false;
       try {
         const systemAsStarSystem = otherSystemObj as StarSystem;
         if (systemAsStarSystem.getCoordinates && typeof systemAsStarSystem.getCoordinates === 'function') {
@@ -405,7 +416,6 @@ export class StarSystem {
           if (coords) {
             return coords;
           }
-          usedDirectCall = true;
         } else {
           // Try prototype chain
           const proto = Object.getPrototypeOf(otherSystemObj);
@@ -414,23 +424,19 @@ export class StarSystem {
             if (coords) {
               return coords;
             }
-            usedDirectCall = true;
           }
         }
       } catch (error) {
         // Method doesn't exist or call failed - will fall back to fetch
       }
       
-      // Fallback to fetch if direct call wasn't used or returned null
-      const systemAsFetch = otherSystemObj as { fetch: (request: Request | string) => Promise<Response> };
-      const otherSnapshot = await systemAsFetch.fetch(DO_INTERNAL("/snapshot"));
-      const otherData = (await otherSnapshot.json()) as { state: { x?: number; y?: number } | null };
-      
-      if (!otherData.state) return null;
-      
+      // Fallback to getSnapshot if direct call returned null
+      const systemAsStarSystem = otherSystemObj as StarSystem;
+      const otherSnapshot = await systemAsStarSystem.getSnapshot();
+      if (!otherSnapshot.state) return null;
       return {
-        x: otherData.state.x ?? 0,
-        y: otherData.state.y ?? 0,
+        x: otherSnapshot.state.x ?? 0,
+        y: otherSnapshot.state.y ?? 0,
       };
     } catch (error) {
       return null;
@@ -443,13 +449,13 @@ export class StarSystem {
     
     const systemState = this.systemState;
     if (!systemState) {
-      const systemId = this.state.id?.toString() || 'unknown';
+      const systemId = this.id || 'unknown';
       console.warn(`[StarSystem ${systemId}] getReachableSystems called but systemState is null after load attempt. System may not be initialized.`);
       return [];
     }
 
     const MAX_TRAVEL_DISTANCE = 15; // Maximum distance ships can travel
-    const GALAXY_SIZE = 256; // Total number of systems
+    const GALAXY_SIZE = 20; // Total number of systems (configurable via env)
     
     const currentX = systemState.x ?? 0;
     const currentY = systemState.y ?? 0;
@@ -458,7 +464,6 @@ export class StarSystem {
     const reachableSystems: Array<{ id: SystemId; distance: number }> = [];
     let systemsChecked = 0;
     let systemsFailed = 0;
-    let systemsUninitialized = 0;
     
     // Check all systems to find those within MAX_TRAVEL_DISTANCE
     for (let i = 0; i < GALAXY_SIZE; i++) {
@@ -482,11 +487,22 @@ export class StarSystem {
       }
     }
     
+    // Filter out any invalid entries (defensive - should never be needed)
+    const validReachableSystems = reachableSystems.filter(
+      (sys): sys is { id: SystemId; distance: number } =>
+        sys !== undefined && sys !== null &&
+        typeof sys.distance === 'number' &&
+        typeof sys.id === 'number' &&
+        !isNaN(sys.distance) &&
+        !isNaN(sys.id) &&
+        sys.distance >= 0
+    );
+    
     // Sort by distance (closest first)
-    reachableSystems.sort((a, b) => a.distance - b.distance);
+    validReachableSystems.sort((a, b) => a.distance - b.distance);
     
     // Log warning if no reachable systems found (this should not happen after validation)
-    if (reachableSystems.length === 0 && systemsChecked > 0) {
+    if (validReachableSystems.length === 0 && systemsChecked > 0) {
       console.warn(
         `[StarSystem ${currentId}] getReachableSystems: No systems found within ${MAX_TRAVEL_DISTANCE} LY. ` +
         `Checked ${systemsChecked} systems, ${systemsFailed} failed/uninitialized. ` +
@@ -494,7 +510,15 @@ export class StarSystem {
       );
     }
     
-    return reachableSystems;
+    // Log error if we filtered out invalid entries (indicates a bug)
+    if (validReachableSystems.length < reachableSystems.length) {
+      console.error(
+        `[StarSystem ${currentId}] getReachableSystems: CRITICAL - Filtered out ${reachableSystems.length - validReachableSystems.length} invalid entries from reachable systems array. ` +
+        `This indicates a bug in getReachableSystems().`
+      );
+    }
+    
+    return validReachableSystems;
   }
 
   private async handleGetReachableSystems(): Promise<Response> {
@@ -504,106 +528,79 @@ export class StarSystem {
     });
   }
 
-  private async handleTick(): Promise<Response> {
-    if (!this.systemState) {
-      return new Response(JSON.stringify({ error: "System not initialized" }), {
-        status: 400,
-        headers: { "Content-Type": "application/json" },
-      });
-    }
-
+  /**
+   * Process system tick - update markets and process ship arrivals
+   * @returns Tick processing results
+   */
+  async tick(): Promise<{ tick: number; processed: number; arrivalsProcessed: number; pendingArrivals: number; marketsUpdated: number }> {
+    if (!this.systemState) throw new Error("System not initialized");
     const now = Date.now();
     const ticksToProcess = Math.floor((now - this.systemState.lastTickTime) / TICK_INTERVAL_MS);
-
     if (ticksToProcess === 0) {
-      return new Response(JSON.stringify({
+      return {
         tick: this.systemState.currentTick,
         processed: 0,
         arrivalsProcessed: 0,
         pendingArrivals: this.pendingArrivals.length,
         marketsUpdated: 0,
-      }), {
-        headers: { "Content-Type": "application/json" },
-      });
+      };
     }
-
     const rng = new DeterministicRNG(this.systemState.seed);
-
     let totalArrivalsProcessed = 0;
-    // Process each tick deterministically
     for (let i = 0; i < ticksToProcess; i++) {
       this.systemState.currentTick++;
       const tickRng = rng.derive(`tick-${this.systemState.currentTick}`);
       const tickTime = this.systemState.lastTickTime + (i + 1) * TICK_INTERVAL_MS;
-
-      // Process ship arrivals for this tick
       totalArrivalsProcessed += await this.processArrivals(tickTime);
-
-      // Count all active traders (NPCs and players) in this system for market volatility scaling
-      const traderCount = this.shipsInSystem.size;
-
-      // Update markets
       for (const [goodId, market] of this.markets.entries()) {
-        await this.updateMarket(goodId, market, this.systemState.currentTick, tickRng, traderCount);
+        await this.updateMarket(goodId, market, this.systemState.currentTick, tickRng);
       }
     }
-
     this.systemState.lastTickTime = now;
-    this.dirty = true; // Mark as dirty during tick
-    this.refreshRequestRegistry();
-    
-    // Flush state once at the end of tick
+    this.dirty = true;
     await this.flushState();
+    return {
+      tick: this.systemState.currentTick,
+      processed: ticksToProcess,
+      arrivalsProcessed: totalArrivalsProcessed,
+      pendingArrivals: this.pendingArrivals.length,
+      marketsUpdated: ticksToProcess * this.markets.size,
+    };
+  }
 
-    const marketsUpdated = ticksToProcess * this.markets.size;
-    return new Response(
-      JSON.stringify({
-        tick: this.systemState.currentTick,
-        processed: ticksToProcess,
-        arrivalsProcessed: totalArrivalsProcessed,
-        pendingArrivals: this.pendingArrivals.length,
-        marketsUpdated,
-      }),
-      { headers: { "Content-Type": "application/json" } }
-    );
+  private async handleTick(): Promise<Response> {
+    try {
+      const result = await this.tick();
+      return new Response(JSON.stringify(result), { headers: { "Content-Type": "application/json" } });
+    } catch (error) {
+      return new Response(JSON.stringify({ error: error instanceof Error ? error.message : String(error) }), {
+        status: 400,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
   }
 
   private async updateMarket(
     goodId: GoodId,
     market: MarketState,
     tick: number,
-    rng: DeterministicRNG,
-    traderCount: number
+    rng: DeterministicRNG
   ): Promise<void> {
     const systemState = this.systemState;
     if (!systemState) return;
 
-    const inventoryBefore = market.inventory;
+    // Removed inventoryBefore tracking - simplified
     
-    // Production adds to inventory
-    // No capacity limit - planet backs the station with unlimited storage
     market.inventory += market.production;
-    // Only cap at extremely high values to prevent overflow (1 billion units)
     market.inventory = Math.min(market.inventory, 1_000_000_000);
-
-    // Log production
-    if (market.production > 0 && !zeroInventoryDetected) {
-      logTrade(
-        `[System ${systemState.id}] PRODUCTION: ${market.production.toFixed(4)} ${goodId} ` +
-        `(inventory: ${inventoryBefore.toFixed(2)} -> ${market.inventory.toFixed(2)})`
-      );
-    }
 
     // Consumption removes from inventory
     const consumed = Math.min(market.consumption, market.inventory);
     market.inventory -= consumed;
     
-    // Log consumption
+    // Removed logTrade - simplified
     if (consumed > 0 && !zeroInventoryDetected) {
-      logTrade(
-        `[System ${systemState.id}] CONSUMPTION: ${consumed.toFixed(4)} ${goodId} ` +
-        `(inventory: ${(market.inventory + consumed).toFixed(2)} -> ${market.inventory.toFixed(2)})`
-      );
+      // logTrade removed - simplified
     }
     
     // Check for zero inventory and stop logging
@@ -612,161 +609,39 @@ export class StarSystem {
       zeroInventorySystem = systemState.id;
       zeroInventoryGood = goodId;
       
-      logTrade(
-        `[System ${systemState.id}] ZERO INVENTORY DETECTED: ${goodId} ` +
-        `(inventory: ${market.inventory.toFixed(2)}, production: ${market.production.toFixed(4)}, ` +
-        `consumption: ${market.consumption.toFixed(4)})`
-      );
+      // logTrade removed - simplified
       
       // Write logs to file
       this.writeLogsToFile();
     }
 
-    // Space Elevator: Small but frequent stock adjustments based on tech level and government
     this.applySpaceElevator(goodId, market, tick, rng);
 
     const expectedStock = Math.max(1, (market.production + market.consumption) * 10);
     const inventoryRatio = market.inventory / expectedStock;
-    const clampedRatio = Math.max(0.1, Math.min(3.0, inventoryRatio));
-    const elasticity = getPriceElasticity();
-    const targetMultiplier = Math.pow(clampedRatio, -elasticity);
+    const priceAdjustment = (inventoryRatio - 1.0) * 0.5;
     const maxMultiplier = getMaxPriceMultiplier();
     const minMultiplier = getMinPriceMultiplier();
-    const clampedMultiplier = Math.max(minMultiplier, Math.min(maxMultiplier, targetMultiplier));
-    const targetPrice = market.basePrice * clampedMultiplier;
-    const adjustRate = getMeanReversionStrength();
-    const newPrice = market.price + (targetPrice - market.price) * adjustRate;
+    const newPrice = market.basePrice * Math.max(minMultiplier, Math.min(maxMultiplier, 1.0 + priceAdjustment));
     market.price = Math.max(
       market.basePrice * minMultiplier,
       Math.min(market.basePrice * maxMultiplier, newPrice)
     );
   }
 
-  private getMarketRequest(market: MarketState): MarketRequest | null {
-    if (market.consumption <= 0) return null;
 
-    const expectedStock = Math.max(1, (market.production + market.consumption) * 10);
-    const lowThreshold = expectedStock * REQUEST_LOW_RATIO;
-    if (market.inventory >= lowThreshold) return null;
-
-    const targetInventory = expectedStock * REQUEST_TARGET_RATIO;
-    const remainingUnits = Math.max(0, targetInventory - market.inventory);
-    if (remainingUnits <= 0) return null;
-
-    const shortageRatio = Math.min(1, (lowThreshold - market.inventory) / lowThreshold);
-    const bonusRate = REQUEST_MIN_BONUS_RATE + (REQUEST_MAX_BONUS_RATE - REQUEST_MIN_BONUS_RATE) * shortageRatio;
-    const bonusPerUnit = Math.max(1, market.basePrice * bonusRate);
-
-    return {
-      bonusPerUnit,
-      remainingUnits,
-    };
-  }
-
-  private refreshRequestRegistry(): void {
-    const systemState = this.systemState;
-    if (!systemState) return;
-
-    const requests: Array<{
-      goodId: GoodId;
-      bonusPerUnit: number;
-      remainingUnits: number;
-      price: number;
-    }> = [];
-    for (const [goodId, market] of this.markets.entries()) {
-      const request = this.getMarketRequest(market);
-      if (!request || request.remainingUnits <= 0 || request.bonusPerUnit <= 0) {
-        continue;
-      }
-      requests.push({
-        goodId,
-        bonusPerUnit: request.bonusPerUnit,
-        remainingUnits: request.remainingUnits,
-        price: market.price,
-      });
-    }
-
-    updateRequestRegistry(systemState.id, {
-      x: systemState.x ?? 0,
-      y: systemState.y ?? 0,
-    }, requests);
-  }
-
-  /**
-   * Space Elevator: Small but frequent stock adjustments every 10 seconds
-   * Replenishes or removes stock based on demand/production imbalance,
-   * tech level (higher = more efficient), and government type (affects trade policies)
-   */
-  private applySpaceElevator(
-    goodId: GoodId,
-    market: MarketState,
-    tick: number,
-    rng: DeterministicRNG
-  ): void {
+  private applySpaceElevator(goodId: GoodId, market: MarketState, tick: number, rng: DeterministicRNG): void {
     if (!this.systemState) return;
-
-    // Target inventory based on expected stock levels (not fixed capacity)
-    // Ideal inventory = enough to cover consumption for ~10 ticks
     const expectedStock = Math.max(1, (market.production + market.consumption) * 10);
-    const targetInventory = expectedStock * 0.5; // ideal inventory level
+    const targetInventory = expectedStock * 0.5;
     const inventoryImbalance = market.inventory - targetInventory;
     const productionConsumptionDiff = market.production - market.consumption;
-
-    // Base elevator efficiency based on tech level (0-6)
-    // Higher tech = more efficient elevator = larger adjustments
-    const techEfficiency = 0.1 + (this.systemState.techLevel * 0.05); // 0.1 to 0.4
-
-    // Government type affects trade policies and elevator behavior
-    let governmentMultiplier = 1.0;
-    switch (this.systemState.government) {
-      case "corporate":
-        // Corporate: Aggressive trading, faster adjustments, favors high-demand goods
-        governmentMultiplier = 1.3;
-        break;
-      case "democracy":
-        // Democracy: Balanced approach, moderate adjustments
-        governmentMultiplier = 1.0;
-        break;
-      case "dictatorship":
-        // Dictatorship: Controlled economy, slower but more predictable
-        governmentMultiplier = 0.7;
-        break;
-      case "anarchy":
-        // Anarchy: Unpredictable, highly variable adjustments
-        governmentMultiplier = 0.8;
-        break;
-      case "feudal":
-        // Feudal: Conservative, minimal adjustments
-        governmentMultiplier = 0.6;
-        break;
-      case "multi_government":
-        // Multi-government: Moderate, balanced
-        governmentMultiplier = 0.9;
-        break;
-      default:
-        governmentMultiplier = 1.0;
-    }
-
-    // Calculate adjustment based on:
-    // 1. Inventory imbalance (how far from target)
-    // 2. Production/consumption difference (net supply)
-    // 3. Tech level efficiency
-    // 4. Government multiplier
+    const techEfficiency = 0.1 + (this.systemState.techLevel * 0.05);
     const elevatorRng = rng.derive(`elevator-${goodId}-${tick}`);
-    const randomFactor = elevatorRng.randomFloat(0.9, 1.1); // Small randomness
-    
-    // Base adjustment: try to correct inventory imbalance
-    const imbalanceAdjustment = -inventoryImbalance * 0.02; // Small correction (2% of imbalance)
-    
-    // Production/consumption adjustment: only add stock when production exceeds consumption
-    // When consumption > production, don't remove stock (natural consumption already handles the deficit)
-    // This prevents the Space Elevator from making deficits worse
-    const productionAdjustment = productionConsumptionDiff > 0 
-      ? productionConsumptionDiff * 0.1  // 10% of net production surplus
-      : 0; // Don't remove stock when consumption exceeds production
-    
-    // Combine adjustments
-    const baseAdjustment = (imbalanceAdjustment + productionAdjustment) * techEfficiency * governmentMultiplier * randomFactor;
+    const randomFactor = elevatorRng.randomFloat(0.9, 1.1);
+    const imbalanceAdjustment = -inventoryImbalance * 0.02;
+    const productionAdjustment = productionConsumptionDiff > 0 ? productionConsumptionDiff * 0.1 : 0;
+    const baseAdjustment = (imbalanceAdjustment + productionAdjustment) * techEfficiency * randomFactor;
     
     // Cap the adjustment to prevent wild swings (max 5% of expected stock per tick)
     const maxAdjustment = expectedStock * 0.05;
@@ -775,6 +650,19 @@ export class StarSystem {
     // Apply adjustment (no upper limit, but prevent negative)
     market.inventory += adjustment;
     market.inventory = Math.max(0, market.inventory);
+  }
+
+  /**
+   * Register a ship arrival at this system
+   * @param arrival - Ship arrival event with timestamp, ship ID, cargo, etc.
+   */
+  async shipArrival(arrival: ShipArrivalEvent): Promise<void> {
+    if (arrival.timestamp > Date.now()) {
+      this.pendingArrivals.push(arrival);
+    } else {
+      await this.applyArrivalEffects(arrival);
+    }
+    this.dirty = true;
   }
 
   // Public method for direct NPC arrival notification (bypasses fetch overhead)
@@ -809,223 +697,114 @@ export class StarSystem {
   }
 
   private async handleShipArrival(request: Request): Promise<Response> {
-    // Fast path: just parse JSON and mark dirty, no processing
     const body = (await request.json()) as ShipArrivalEvent;
     const arrival: ShipArrivalEvent = {
       ...body,
       cargo: new Map((body.cargo as unknown as Array<[GoodId, number]>) || []),
       priceInfo: new Map((body.priceInfo as unknown as Array<[GoodId, number]>) || []),
     };
-    
-    // Add to pending arrivals if not yet arrived
-    if (arrival.timestamp > Date.now()) {
-      this.pendingArrivals.push(arrival);
-    } else {
-      await this.applyArrivalEffects(arrival);
-    }
-
-    // Mark as dirty - will be saved at end of tick
-    this.dirty = true;
-
-    // Return immediately without JSON.stringify overhead - just return success
+    await this.shipArrival(arrival);
     return new Response("{\"success\":true}", {
       headers: { "Content-Type": "application/json" },
     });
   }
 
+  async shipDeparture(shipId: ShipId): Promise<void> {
+    this.shipsInSystem.delete(shipId);
+    this.dirty = true;
+  }
+
   private async handleShipDeparture(request: Request): Promise<Response> {
     const body = (await request.json()) as { shipId: ShipId };
-    
-    this.shipsInSystem.delete(body.shipId);
-    // Mark as dirty - will be saved at end of tick
-    this.dirty = true;
-
+    await this.shipDeparture(body.shipId);
     return new Response(JSON.stringify({ success: true }), {
       headers: { "Content-Type": "application/json" },
     });
   }
 
-  private async handleTrade(request: Request): Promise<Response> {
-    const body = (await request.json()) as {
-      shipId: ShipId;
-      goodId: GoodId;
-      quantity: number;
-      type: "buy" | "sell";
-    };
-
-    if (!Number.isFinite(body.quantity) || body.quantity <= 0 || !Number.isInteger(body.quantity)) {
-      return new Response(JSON.stringify({ error: "Invalid quantity: must be a positive integer" }), {
-        status: 400,
-        headers: { "Content-Type": "application/json" },
-      });
+  async trade(params: { shipId: ShipId; goodId: GoodId; quantity: number; type: "buy" | "sell" }): Promise<{ success: boolean; error?: string; price?: number; totalCost?: number; totalValue?: number; tax?: number; quantity?: number; newInventory?: number }> {
+    if (!Number.isFinite(params.quantity) || params.quantity <= 0 || !Number.isInteger(params.quantity)) {
+      return { success: false, error: "Invalid quantity: must be a positive integer" };
     }
-
-    const systemState = this.systemState;
-    if (!systemState) {
-      return new Response(JSON.stringify({ error: "System not initialized" }), {
-        status: 400,
-        headers: { "Content-Type": "application/json" },
-      });
+    if (!this.systemState) {
+      return { success: false, error: "System not initialized" };
     }
-    const systemId = systemState.id;
+    const systemId = this.systemState.id;
 
-    // Auto-register ships that aren't in the list but are trying to trade
-    // This handles NPCs that were initialized at a system but never went through arrival
-    if (!this.shipsInSystem.has(body.shipId)) {
-      this.shipsInSystem.add(body.shipId);
-      this.dirty = true; // Mark state as dirty so it gets saved
+    if (!this.shipsInSystem.has(params.shipId)) {
+      this.shipsInSystem.add(params.shipId);
+      this.dirty = true;
     }
-
-    const market = this.markets.get(body.goodId);
+    const market = this.markets.get(params.goodId);
     if (!market) {
-      return new Response(JSON.stringify({ error: "Good not found" }), {
-        status: 400,
-        headers: { "Content-Type": "application/json" },
-      });
+      return { success: false, error: "Good not found" };
     }
-
-    if (body.type === "buy") {
-      // Ship buying from station
-      if (market.inventory < body.quantity) {
-        return new Response(JSON.stringify({ error: "Insufficient inventory" }), {
-          status: 400,
-          headers: { "Content-Type": "application/json" },
-        });
+    if (params.type === "buy") {
+      if (market.inventory < params.quantity) {
+        return { success: false, error: "Insufficient inventory" };
       }
-
-      // Calculate cost at current price (before adjustment)
       const currentPrice = market.price;
-      const baseCost = currentPrice * body.quantity;
+      const baseCost = currentPrice * params.quantity;
       const inventoryBefore = market.inventory;
-      
-      // Update inventory
-      market.inventory -= body.quantity;
-      
-      // Log trade
+      market.inventory -= params.quantity;
       if (!zeroInventoryDetected) {
-        logTrade(
-          `[System ${systemId}] TRADE BUY: ${body.shipId} bought ${body.quantity} ${body.goodId} ` +
-          `at ${currentPrice.toFixed(2)} cr (inventory: ${inventoryBefore.toFixed(2)} -> ${market.inventory.toFixed(2)})`
-        );
+        console.log(`[System ${systemId}] TRADE BUY: ${params.shipId} bought ${params.quantity} ${params.goodId} at ${currentPrice.toFixed(2)} cr (inventory: ${inventoryBefore.toFixed(2)} -> ${market.inventory.toFixed(2)})`);
       }
-      
-      // Check for zero inventory after trade
       if (market.inventory <= 0 && !zeroInventoryDetected) {
         zeroInventoryDetected = true;
         zeroInventorySystem = systemId;
-        zeroInventoryGood = body.goodId;
-        
-        logTrade(
-          `[System ${systemId}] ZERO INVENTORY DETECTED: ${body.goodId} after trade ` +
-          `(inventory: ${market.inventory.toFixed(2)}, production: ${market.production.toFixed(4)}, ` +
-          `consumption: ${market.consumption.toFixed(4)})`
-        );
-        
-        // Write logs to file
+        zeroInventoryGood = params.goodId;
+        console.log(`[System ${systemId}] ZERO INVENTORY DETECTED: ${params.goodId} after trade (inventory: ${market.inventory.toFixed(2)}, production: ${market.production.toFixed(4)}, consumption: ${market.consumption.toFixed(4)})`);
         this.writeLogsToFile();
       }
-      
-      // Immediate price adjustment: buying reduces inventory, increases price
-      // Impact based on trade size relative to expected stock levels
-      // DISABLED FOR TESTING: Stop all price fluctuations
-      // const expectedStock = Math.max(1, (market.production + market.consumption) * 10);
-      // const tradeImpact = (body.quantity / expectedStock) * getTransactionImpactMultiplier();
-      // const priceAdjustment = tradeImpact * currentPrice; // Buy increases price
-      // const newPrice = currentPrice + priceAdjustment;
-      // const maxMultiplier = getMaxPriceMultiplier();
-      // const minMultiplier = getMinPriceMultiplier();
-      // market.price = Math.max(
-      //   market.basePrice * minMultiplier,
-      //   Math.min(market.basePrice * maxMultiplier, newPrice)
-      // );
       const tax = baseCost * SALES_TAX_RATE;
-      const totalCost = baseCost + tax; // Buyer pays price + tax
-      this.dirty = true; // Mark state as dirty since inventory changed
-      this.refreshRequestRegistry();
-
-      return new Response(
-        JSON.stringify({
-          success: true,
-          price: market.price,
-          totalCost,
-          tax,
-          newInventory: market.inventory,
-        }),
-        { headers: { "Content-Type": "application/json" } }
-      );
+      const totalCost = baseCost + tax;
+      this.dirty = true;
+      return { success: true, price: market.price, totalCost, tax, newInventory: market.inventory };
     } else {
-      // Ship selling to station
-      // No capacity limit - planet backs the station, but cap at very high values to prevent overflow
-      const actualQuantity = Math.min(body.quantity, 1_000_000_000 - market.inventory);
-
+      const actualQuantity = Math.min(params.quantity, 1_000_000_000 - market.inventory);
       if (actualQuantity === 0) {
-        return new Response(JSON.stringify({ error: "Station inventory at maximum" }), {
-          status: 400,
-          headers: { "Content-Type": "application/json" },
-        });
+        return { success: false, error: "Station inventory at maximum" };
       }
-
-      // Calculate value at current price (before adjustment)
       const currentPrice = market.price;
       const inventoryBefore = market.inventory;
-      const request = this.getMarketRequest(market);
-      const bonusUnits = request ? Math.min(actualQuantity, request.remainingUnits) : 0;
-      const bonusValue = request ? bonusUnits * request.bonusPerUnit : 0;
-      
-      // Update inventory
       market.inventory += actualQuantity;
-      
-      // Log trade
       if (!zeroInventoryDetected) {
-        const bonusNote = bonusValue > 0 ? ` + bonus ${bonusValue.toFixed(2)} cr` : "";
-        logTrade(
-          `[System ${systemId}] TRADE SELL: ${body.shipId} sold ${actualQuantity} ${body.goodId} ` +
-          `at ${currentPrice.toFixed(2)} cr${bonusNote} (inventory: ${inventoryBefore.toFixed(2)} -> ${market.inventory.toFixed(2)})`
-        );
+        console.log(`[System ${systemId}] TRADE SELL: ${params.shipId} sold ${actualQuantity} ${params.goodId} at ${currentPrice.toFixed(2)} cr (inventory: ${inventoryBefore.toFixed(2)} -> ${market.inventory.toFixed(2)})`);
       }
-      
-      // Immediate price adjustment: selling increases inventory, decreases price
-      // Impact based on trade size relative to expected stock levels
-      // DISABLED FOR TESTING: Stop all price fluctuations
-      // const expectedStock = Math.max(1, (market.production + market.consumption) * 10);
-      // const tradeImpact = (actualQuantity / expectedStock) * getTransactionImpactMultiplier();
-      // const priceAdjustment = -tradeImpact * currentPrice; // Sell decreases price
-      // const newPrice = currentPrice + priceAdjustment;
-      // const maxMultiplier = getMaxPriceMultiplier();
-      // const minMultiplier = getMinPriceMultiplier();
-      // market.price = Math.max(
-      //   market.basePrice * minMultiplier,
-      //   Math.min(market.basePrice * maxMultiplier, newPrice)
-      // );
-      
-      const baseValue = currentPrice * actualQuantity;
-      const tax = 0; // No tax on sales
-      const totalValue = baseValue + bonusValue; // Seller receives full price + request bonus
-      this.dirty = true; // Mark state as dirty since inventory changed
-      this.refreshRequestRegistry();
-
-      return new Response(
-        JSON.stringify({
-          success: true,
-          price: market.price,
-          totalValue,
-          bonusValue,
-          bonusUnits,
-          tax,
-          quantity: actualQuantity,
-          newInventory: market.inventory,
-        }),
-        { headers: { "Content-Type": "application/json" } }
-      );
+      const totalValue = currentPrice * actualQuantity;
+      this.dirty = true;
+      return { success: true, price: market.price, totalValue, quantity: actualQuantity, newInventory: market.inventory };
     }
+  }
+
+  private async handleTrade(request: Request): Promise<Response> {
+    const body = (await request.json()) as { shipId: ShipId; goodId: GoodId; quantity: number; type: "buy" | "sell" };
+    const result = await this.trade(body);
+    return new Response(JSON.stringify(result), {
+      status: result.success ? 200 : 400,
+      headers: { "Content-Type": "application/json" },
+    });
   }
 
   /**
    * Write trade logs to file when zero inventory is detected
+   * Only works in Node.js environment (not in Cloudflare Workers)
    */
   private writeLogsToFile(): void {
     try {
-      const logs = getTradeLogs();
+      // Check if we're in a Node.js environment
+      if (typeof process === "undefined" || !process.cwd) {
+        // Cloudflare Workers environment - skip file writing
+        return;
+      }
+      
+      // Dynamic import for Node.js modules (only available in Node.js)
+      const fs = require("fs");
+      const path = require("path");
+      
+      // Removed getTradeLogs - simplified
+      const logs: Array<{ timestamp: number; message: string }> = [];
       const logDir = path.join(process.cwd(), "logs");
       
       // Ensure logs directory exists
@@ -1037,7 +816,7 @@ export class StarSystem {
       const filename = `zero-inventory-${zeroInventorySystem}-${zeroInventoryGood}-${timestamp}.log`;
       const filepath = path.join(logDir, filename);
       
-      const logContent = logs.map(entry => {
+      const logContent = logs.map((entry: { timestamp: number; message: string }) => {
         const date = new Date(entry.timestamp).toISOString();
         return `[${date}] ${entry.message}`;
       }).join("\n");
@@ -1053,4 +832,5 @@ export class StarSystem {
       console.error(`[System ${systemId}] Error writing logs to file:`, error);
     }
   }
+
 }

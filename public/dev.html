@@ -363,6 +363,35 @@
             </div>
         </div>
 
+        <!-- Navigation Tuning -->
+        <div class="section">
+            <div class="section-header" onclick="toggleSection(this)">
+                <h2>🧭 Navigation Tuning</h2>
+                <span class="section-toggle">▶</span>
+            </div>
+            <div class="section-content">
+                <div class="description">Experiment with in-system travel fuel usage for playtesting.</div>
+                <div class="inline-group">
+                    <div class="form-group">
+                        <label>In-system fuel usage</label>
+                        <select id="navFuelEnabled">
+                            <option value="false">Disabled</option>
+                            <option value="true">Enabled</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Fuel per sector (LY)</label>
+                        <input type="number" id="navFuelRate" min="0" step="0.01" value="0.02">
+                    </div>
+                </div>
+                <div class="button-group">
+                    <button onclick="saveNavigationConfig()">Save Navigation Config</button>
+                    <button onclick="loadNavigationConfig()">Refresh</button>
+                </div>
+                <div class="status-box" id="navConfigStatus">Navigation config ready.</div>
+            </div>
+        </div>
+
         <!-- Player Management -->
         <div class="section">
             <div class="section-header" onclick="toggleSection(this)">
@@ -429,6 +458,43 @@
                 <div class="description">Real-time monitoring interface with live trading data, price charts, and ship status.</div>
                 <div class="button-group">
                     <button onclick="window.open('/monitor', '_blank')" class="success">Open System Monitor</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Logging Switches -->
+        <div class="section">
+            <div class="section-header" onclick="toggleSection(this)">
+                <h2>🧰 Logging Switches</h2>
+                <span class="section-toggle">▶</span>
+            </div>
+            <div class="section-content">
+                <div class="description">Toggle log capture for core systems. These switches persist in logging-config.json.</div>
+                <div class="inline-group">
+                    <div class="form-group">
+                        <label>Global Logging</label>
+                        <button onclick="toggleGlobalLogging()" id="globalLoggingBtn">Loading...</button>
+                        <div class="status-box" id="globalLoggingStatus">Loading...</div>
+                    </div>
+                    <div class="form-group">
+                        <label>Trade Log Capture</label>
+                        <button onclick="toggleTradeLoggingEnabled()" id="tradeLoggingEnabledBtn">Loading...</button>
+                        <div class="status-box" id="tradeLoggingEnabledStatus">Loading...</div>
+                    </div>
+                    <div class="form-group">
+                        <label>Player Log Capture</label>
+                        <button onclick="togglePlayerLoggingEnabled()" id="playerLoggingEnabledBtn">Loading...</button>
+                        <div class="status-box" id="playerLoggingEnabledStatus">Loading...</div>
+                    </div>
+                    <div class="form-group">
+                        <label>Expectation Shortfall File Log</label>
+                        <div class="inline-group">
+                            <button onclick="toggleExpectationShortfallLoggingEnabled()" id="shortfallLoggingEnabledBtn">Loading...</button>
+                            <input type="number" id="shortfallThresholdInput" min="0" step="1000" value="10000">
+                            <button onclick="updateExpectationShortfallThreshold()">Set Threshold</button>
+                        </div>
+                        <div class="status-box" id="shortfallLoggingEnabledStatus">Loading...</div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -927,6 +993,8 @@
             }
         }
 
+        let loggingConfig = null;
+
         async function loadApiDocs() {
             try {
                 const categories = ['Galaxy Operations', 'System Operations', 'Ship Operations'];
@@ -942,6 +1010,184 @@
             } catch (error) {
                 console.warn('Could not load API docs:', error);
             }
+        }
+
+        function applyLoggingConfigToUi(config) {
+            loggingConfig = config || {};
+            const globalEnabled = loggingConfig.enabled !== false;
+            const tradeEnabled = loggingConfig.trade?.enabled !== false;
+            const playerEnabled = loggingConfig.player?.enabled !== false;
+            const shortfallEnabled = loggingConfig.trade?.expectationShortfall?.enabled !== false;
+            const shortfallThreshold = loggingConfig.trade?.expectationShortfall?.thresholdCredits ?? 10000;
+            const effectiveTradeEnabled = globalEnabled && tradeEnabled;
+            const effectivePlayerEnabled = globalEnabled && playerEnabled;
+            const effectiveShortfallEnabled = globalEnabled && tradeEnabled && shortfallEnabled;
+            const mode = loggingConfig.trade?.mode || 'none';
+
+            const globalBtn = document.getElementById('globalLoggingBtn');
+            const globalStatus = document.getElementById('globalLoggingStatus');
+            if (globalEnabled) {
+                globalBtn.textContent = 'Disable';
+                globalBtn.className = 'danger';
+                globalStatus.textContent = '✅ Global logging enabled';
+                globalStatus.style.color = '#10b981';
+            } else {
+                globalBtn.textContent = 'Enable';
+                globalBtn.className = 'success';
+                globalStatus.textContent = '🔇 Global logging disabled';
+                globalStatus.style.color = '#f87171';
+            }
+
+            const tradeBtn = document.getElementById('tradeLoggingEnabledBtn');
+            const tradeStatus = document.getElementById('tradeLoggingEnabledStatus');
+            if (tradeEnabled) {
+                tradeBtn.textContent = 'Disable';
+                tradeBtn.className = 'danger';
+            } else {
+                tradeBtn.textContent = 'Enable';
+                tradeBtn.className = 'success';
+            }
+            if (!globalEnabled) {
+                tradeStatus.textContent = '⛔ Disabled by global switch';
+                tradeStatus.style.color = '#f87171';
+            } else if (effectiveTradeEnabled) {
+                tradeStatus.textContent = '✅ Trade logging enabled';
+                tradeStatus.style.color = '#10b981';
+            } else {
+                tradeStatus.textContent = '🔇 Trade logging disabled';
+                tradeStatus.style.color = '#f87171';
+            }
+
+            const playerBtn = document.getElementById('playerLoggingEnabledBtn');
+            const playerStatus = document.getElementById('playerLoggingEnabledStatus');
+            if (playerEnabled) {
+                playerBtn.textContent = 'Disable';
+                playerBtn.className = 'danger';
+            } else {
+                playerBtn.textContent = 'Enable';
+                playerBtn.className = 'success';
+            }
+            if (!globalEnabled) {
+                playerStatus.textContent = '⛔ Disabled by global switch';
+                playerStatus.style.color = '#f87171';
+            } else if (effectivePlayerEnabled) {
+                playerStatus.textContent = '✅ Player logging enabled';
+                playerStatus.style.color = '#10b981';
+            } else {
+                playerStatus.textContent = '🔇 Player logging disabled';
+                playerStatus.style.color = '#f87171';
+            }
+
+            const shortfallBtn = document.getElementById('shortfallLoggingEnabledBtn');
+            const shortfallStatus = document.getElementById('shortfallLoggingEnabledStatus');
+            const shortfallInput = document.getElementById('shortfallThresholdInput');
+            if (shortfallEnabled) {
+                shortfallBtn.textContent = 'Disable';
+                shortfallBtn.className = 'danger';
+            } else {
+                shortfallBtn.textContent = 'Enable';
+                shortfallBtn.className = 'success';
+            }
+            shortfallInput.value = shortfallThreshold;
+            if (!globalEnabled) {
+                shortfallStatus.textContent = '⛔ Disabled by global switch';
+                shortfallStatus.style.color = '#f87171';
+            } else if (!tradeEnabled) {
+                shortfallStatus.textContent = '⛔ Disabled by trade log capture';
+                shortfallStatus.style.color = '#f87171';
+            } else if (effectiveShortfallEnabled) {
+                shortfallStatus.textContent = `✅ File logging enabled (≥ ${shortfallThreshold} cr)`;
+                shortfallStatus.style.color = '#10b981';
+            } else {
+                shortfallStatus.textContent = '🔇 File logging disabled';
+                shortfallStatus.style.color = '#f87171';
+            }
+
+            const statusEl = document.getElementById('tradeLoggingStatus');
+            const selectEl = document.getElementById('tradeLoggingMode');
+            if (!globalEnabled || !tradeEnabled) {
+                statusEl.textContent = '🔇 Trade logging disabled';
+            } else if (mode === 'all') {
+                statusEl.textContent = '✅ Logging all traders';
+            } else if (mode === 'none') {
+                statusEl.textContent = '🔇 Logging disabled';
+            } else {
+                statusEl.textContent = `🎯 Logging only: ${mode}`;
+            }
+
+            if (mode === 'all' || mode === 'none') {
+                selectEl.value = mode;
+                document.getElementById('customShipIdGroup').style.display = 'none';
+            } else {
+                selectEl.value = 'custom';
+                document.getElementById('customShipIdGroup').style.display = 'block';
+                document.getElementById('customShipId').value = mode;
+            }
+
+            if (mode.startsWith('npc-')) {
+                monitoredShipId = mode;
+                document.getElementById('decisionMonitorShipId').value = mode;
+                const decisionStatus = document.getElementById('decisionMonitorStatus');
+                if (!globalEnabled || !tradeEnabled) {
+                    decisionStatus.textContent = `⚠ Monitoring paused: ${mode}`;
+                    decisionStatus.style.color = '#f59e0b';
+                } else {
+                    decisionStatus.textContent = `✅ Monitoring: ${mode}`;
+                    decisionStatus.style.color = '#10b981';
+                }
+            }
+        }
+
+        async function loadLoggingConfig() {
+            try {
+                const result = await apiCall('GET', '/api/logging');
+                if (result.success) {
+                    applyLoggingConfigToUi(result.data.config || result.data);
+                }
+            } catch (error) {
+                document.getElementById('globalLoggingStatus').textContent = '⚠️ Could not load status';
+            }
+        }
+
+        async function updateLoggingConfig(updates) {
+            try {
+                const result = await apiCall('POST', '/api/logging', updates);
+                if (result.success) {
+                    applyLoggingConfigToUi(result.data.config || result.data);
+                }
+            } catch (error) {
+                log(`Error updating logging config: ${error.message}`, 'error');
+            }
+        }
+
+        async function toggleGlobalLogging() {
+            const enabled = !(loggingConfig && loggingConfig.enabled !== false);
+            await updateLoggingConfig({ enabled });
+        }
+
+        async function toggleTradeLoggingEnabled() {
+            const current = loggingConfig?.trade?.enabled !== false;
+            await updateLoggingConfig({ trade: { enabled: !current } });
+        }
+
+        async function togglePlayerLoggingEnabled() {
+            const current = loggingConfig?.player?.enabled !== false;
+            await updateLoggingConfig({ player: { enabled: !current } });
+        }
+
+        async function toggleExpectationShortfallLoggingEnabled() {
+            const current = loggingConfig?.trade?.expectationShortfall?.enabled !== false;
+            await updateLoggingConfig({ trade: { expectationShortfall: { enabled: !current } } });
+        }
+
+        async function updateExpectationShortfallThreshold() {
+            const input = document.getElementById('shortfallThresholdInput');
+            const thresholdCredits = Number(input.value);
+            if (!Number.isFinite(thresholdCredits) || thresholdCredits < 0) {
+                log('Threshold must be a non-negative number', 'error');
+                return;
+            }
+            await updateLoggingConfig({ trade: { expectationShortfall: { thresholdCredits } } });
         }
 
         async function updateTradeLogging() {
@@ -969,18 +1215,7 @@
             try {
                 const result = await apiCall('POST', '/api/trade-logging', { mode });
                 if (result.success) {
-                    const statusEl = document.getElementById('tradeLoggingStatus');
-                    if (mode === 'all') {
-                        statusEl.textContent = '✅ Logging all traders';
-                    } else if (mode === 'none') {
-                        statusEl.textContent = '🔇 Logging disabled';
-                    } else {
-                        statusEl.textContent = `🎯 Logging only: ${mode}`;
-                    }
-                    if (mode === 'all' || mode === 'none') {
-                        document.getElementById('tradeLoggingMode').value = mode;
-                        document.getElementById('customShipIdGroup').style.display = 'none';
-                    }
+                    await loadLoggingConfig();
                 }
             } catch (error) {
                 log(`Error setting trade logging: ${error.message}`, 'error');
@@ -988,35 +1223,54 @@
         }
 
         async function loadTradeLoggingStatus() {
+            await loadLoggingConfig();
+        }
+
+        async function loadNavigationConfig() {
+            const status = document.getElementById('navConfigStatus');
+            if (status) status.textContent = 'Loading navigation config...';
             try {
-                const result = await apiCall('GET', '/api/trade-logging');
-                if (result.success) {
-                    const mode = result.data.mode;
-                    const statusEl = document.getElementById('tradeLoggingStatus');
-                    const selectEl = document.getElementById('tradeLoggingMode');
-                    
-                    if (mode === 'all') {
-                        statusEl.textContent = '✅ Logging all traders';
-                        selectEl.value = 'all';
-                    } else if (mode === 'none') {
-                        statusEl.textContent = '🔇 Logging disabled';
-                        selectEl.value = 'none';
-                    } else {
-                        statusEl.textContent = `🎯 Logging only: ${mode}`;
-                        selectEl.value = 'custom';
-                        document.getElementById('customShipIdGroup').style.display = 'block';
-                        document.getElementById('customShipId').value = mode;
-                        
-                        if (mode.startsWith('npc-')) {
-                            monitoredShipId = mode;
-                            document.getElementById('decisionMonitorShipId').value = mode;
-                            document.getElementById('decisionMonitorStatus').textContent = `✅ Monitoring: ${mode}`;
-                            document.getElementById('decisionMonitorStatus').style.color = '#10b981';
-                        }
+                const result = await apiCall('GET', '/api/navigation-config');
+                if (result.success && result.data?.config) {
+                    const config = result.data.config;
+                    const enabledSelect = document.getElementById('navFuelEnabled');
+                    const rateInput = document.getElementById('navFuelRate');
+                    if (enabledSelect) enabledSelect.value = String(Boolean(config.inSystemFuelEnabled));
+                    if (rateInput && Number.isFinite(config.inSystemFuelRate)) {
+                        rateInput.value = config.inSystemFuelRate.toFixed(2);
                     }
+                    if (status) status.textContent = 'Navigation config loaded.';
+                } else if (status) {
+                    status.textContent = result.error || 'Failed to load navigation config.';
                 }
             } catch (error) {
-                document.getElementById('tradeLoggingStatus').textContent = '⚠️ Could not load status';
+                if (status) status.textContent = `Error loading navigation config: ${error.message}`;
+            }
+        }
+
+        async function saveNavigationConfig() {
+            const status = document.getElementById('navConfigStatus');
+            const enabledSelect = document.getElementById('navFuelEnabled');
+            const rateInput = document.getElementById('navFuelRate');
+            const enabled = enabledSelect ? enabledSelect.value === 'true' : false;
+            const rateValue = rateInput ? parseFloat(rateInput.value) : 0;
+            if (!Number.isFinite(rateValue) || rateValue < 0) {
+                if (status) status.textContent = 'Fuel rate must be a non-negative number.';
+                return;
+            }
+            if (status) status.textContent = 'Saving navigation config...';
+            try {
+                const result = await apiCall('POST', '/api/navigation-config', {
+                    inSystemFuelEnabled: enabled,
+                    inSystemFuelRate: rateValue
+                });
+                if (result.success && result.data?.config) {
+                    if (status) status.textContent = 'Navigation config saved.';
+                } else if (status) {
+                    status.textContent = result.error || 'Failed to save navigation config.';
+                }
+            } catch (error) {
+                if (status) status.textContent = `Error saving navigation config: ${error.message}`;
             }
         }
 
@@ -1488,6 +1742,7 @@
         log('Dev Testing Interface Ready', 'success');
         log(`API Base: ${API_BASE}`, 'info');
         loadTradeLoggingStatus();
+        loadNavigationConfig();
         loadAutoTickStatus();
         loadApiDocs();
     </script>

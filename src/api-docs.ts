@@ -28,7 +28,7 @@ export interface ApiEndpoint {
   };
   response: {
     description: string;
-    example?: any;
+    example?: unknown;
   };
   notes?: string[];
 }
@@ -37,8 +37,24 @@ export const API_DOCUMENTATION: Record<string, ApiEndpoint[]> = {
   "Galaxy Operations": [
     {
       method: "POST",
+      path: "/api/galaxy/reset",
+      description: "Resets the entire database, clearing all systems, ships, markets, and players. This provides a completely fresh start for the simulation. Use this before initializing a new galaxy to eliminate any bias from previous runs.",
+      response: {
+        description: "Returns a success message confirming the reset.",
+        example: {
+          message: "Database reset complete",
+        },
+      },
+      notes: [
+        "WARNING: This permanently deletes all data.",
+        "Use this before /api/galaxy/initialize for a clean start.",
+        "All systems, ships, markets, and players will be removed.",
+      ],
+    },
+    {
+      method: "POST",
       path: "/api/galaxy/initialize",
-      description: "Initializes the entire galaxy with all star systems and NPC traders. This is a one-time setup operation that creates 256 star systems with randomized properties (population, tech level, government type) and spawns NPC traders (default: 50 per system). Each system gets its own deterministic RNG seed based on the galaxy seed.",
+      description: "Initializes the entire galaxy with all star systems and NPC traders. This is a one-time setup operation that creates 20 star systems with randomized properties (population, tech level, world type) and spawns NPC traders (default: 5 per system). Each system gets its own deterministic RNG seed based on the galaxy seed.",
       requestBody: {
         fields: [
           {
@@ -53,12 +69,12 @@ export const API_DOCUMENTATION: Record<string, ApiEndpoint[]> = {
         description: "Returns the number of systems initialized and NPCs created.",
         example: {
           success: true,
-          systemsInitialized: 256,
-          npcsCreated: 12800,
+          systemsInitialized: 20,
+          npcsCreated: 100,
         },
       },
       notes: [
-        "This operation can take several seconds as it initializes 256 systems and thousands of NPCs.",
+        "This operation initializes 20 systems and 100 NPCs.",
         "Each system is initialized with unique properties based on deterministic RNG.",
         "NPCs are randomly assigned to home systems.",
       ],
@@ -71,16 +87,15 @@ export const API_DOCUMENTATION: Record<string, ApiEndpoint[]> = {
         description: "Returns the number of systems and NPC ships that were ticked.",
         example: {
           success: true,
-          systemsTicked: 256,
-          shipsTicked: 12000,
-          totalNPCs: 12800,
+          systemsTicked: 20,
+          shipsTicked: 100,
+          totalNPCs: 100,
         },
       },
       notes: [
-        "Ticking all systems and NPCs can take time depending on galaxy size.",
-        "In production, this should be done via scheduled events (cron).",
+        "Ticks all 20 systems and 100 NPCs.",
         "Each tick advances market dynamics, ship travel, and NPC trading decisions.",
-        "NPCs that are resting or sleeping are automatically skipped (they're in an 'ignore pool').",
+        "Ships are processed in queues to maintain server responsiveness.",
       ],
     },
     {
@@ -140,10 +155,13 @@ export const API_DOCUMENTATION: Record<string, ApiEndpoint[]> = {
     {
       method: "GET",
       path: "/api/galaxy/markets",
-      description: "Returns a comprehensive galactic market overview showing stock levels, prices, and active market requests across all systems. Aggregates market data from sampled systems (up to 100) including inventory ratios, price deviations from base prices, and incentive/request information. Useful for monitoring pricing and incentive system health at a galactic level.",
+      description: "Returns a galactic market overview showing stock levels, prices, and active market requests. Supports pagination via start/limit so clients can lazily fetch systems in batches. Includes per-good metadata, per-system market data, and aggregate stats for the returned sample.",
       response: {
         description: "Returns market data aggregated by good and system, including statistics on stock levels, prices, and active requests.",
         example: {
+          goods: [
+            { goodId: "food", name: "Food", basePrice: 10 },
+          ],
           systems: [
             {
               id: 0,
@@ -178,13 +196,26 @@ export const API_DOCUMENTATION: Record<string, ApiEndpoint[]> = {
               systemsWithLowStock: [0, 1, 2],
             },
           },
+          monitoringSummary: {
+            timestamp: 1234567890000,
+            totalMarkets: 2560,
+            zeroInventoryMarkets: 12,
+            nearZeroInventoryMarkets: 48,
+            lowInventoryMarkets: 120,
+            averageInventoryRatio: 0.92,
+            worstGoods: [
+              { goodId: "metals", averageInventoryRatio: 0.31, zeroInventoryMarkets: 4, nearZeroInventoryMarkets: 10, lowInventoryMarkets: 30 },
+            ],
+          },
           timestamp: 1234567890000,
-          sampleSize: 100,
+          sampleSize: 20,
+          sampleStart: 0,
           totalSystems: 256,
         },
       },
       notes: [
-        "Samples up to 100 systems for performance (or all systems if galaxy is smaller).",
+        "Use query params `start` and `limit` to page through systems; defaults to the first batch.",
+        "Samples up to 20 systems per request for performance (or fewer if near the end of the galaxy).",
         "Stock ratio = inventory / expected stock (where expected stock = (production + consumption) * 10).",
         "Price ratio = current price / base price.",
         "Active requests indicate systems with low stock that are offering bonuses to incentivize traders.",
@@ -241,7 +272,8 @@ export const API_DOCUMENTATION: Record<string, ApiEndpoint[]> = {
         "Health status can be 'healthy', 'warning', or 'critical' with specific issues listed.",
       ],
     },
-    {
+    // Removed leaderboard endpoints - simplified
+    /*{
       method: "GET",
       path: "/api/leaderboard",
       description: "Returns comprehensive galactic leaderboards showing top traders, best systems, and popular trade routes. Tracks traders by credits, ticks, trades, profit, and volume. Tracks systems by trade volume, number of trades, unique traders, and profit. Shows popular trade routes between systems.",
@@ -387,7 +419,7 @@ export const API_DOCUMENTATION: Record<string, ApiEndpoint[]> = {
         },
       },
       notes: ["This only clears tracking data, not the actual ships or systems."],
-    },
+    },*/
     {
       method: "POST",
       path: "/api/flush",
@@ -411,7 +443,7 @@ export const API_DOCUMENTATION: Record<string, ApiEndpoint[]> = {
     {
       method: "GET",
       path: "/api/player?name={name}",
-      description: "Fetch a player account by name.",
+      description: "Fetch a player account by name. Players are ships with isNPC: false. All player trades are canonical and affect markets just like NPC trades.",
       parameters: [
         {
           name: "name",
@@ -488,7 +520,6 @@ export const API_DOCUMENTATION: Record<string, ApiEndpoint[]> = {
             name: "Sol",
             population: 88.7,
             techLevel: 4,
-            government: "dictatorship",
             currentTick: 5,
           },
           markets: {
@@ -507,12 +538,153 @@ export const API_DOCUMENTATION: Record<string, ApiEndpoint[]> = {
         "Useful for finding trading opportunities across systems.",
       ],
     },
+    // Removed delivery board endpoints - simplified
+    /*{
+      method: "GET",
+      path: "/api/system/{id}/delivery-board",
+      description: "Gets available delivery jobs from a star system. Delivery jobs are contracts to transport goods from one system to another. The reward is calculated as fuel cost + 10%. Delivery cargo cannot be sold and can only be delivered to the requested system.",
+      parameters: [
+        {
+          name: "id",
+          type: "number",
+          required: true,
+          description: "System ID (0-255). Must be a valid system ID within the galaxy size.",
+        },
+      ],
+      response: {
+        description: "Returns list of available delivery jobs from this system.",
+        example: {
+          systemId: 0,
+          jobs: [
+            {
+              id: "delivery-0-5-1234567890-0",
+              fromSystemId: 0,
+              toSystemId: 5,
+              goodId: "food",
+              quantity: 25,
+              reward: 33,
+              acceptedBy: null,
+              acceptedAt: null,
+              createdAt: 1234567890000,
+              expiresAt: 1234571490000,
+            },
+          ],
+        },
+      },
+      notes: [
+        "Only returns jobs that are not yet accepted and not expired.",
+        "Delivery jobs are randomly generated every 10 ticks.",
+        "Delivery sizes are random (1-50 units).",
+        "Jobs can be long-distance (cross-galaxy) if systems are far apart.",
+      ],
+    },
+    {
+      method: "POST",
+      path: "/api/system/{id}/delivery-board/accept",
+      description: "Accepts a delivery job from a system. The ship must be at the system to accept the job. Once accepted, the goods are added to the ship's cargo as delivery cargo (cannot be sold).",
+      parameters: [
+        {
+          name: "id",
+          type: "number",
+          required: true,
+          description: "System ID (0-255) where the delivery job is located.",
+        },
+      ],
+      requestBody: {
+        fields: [
+          {
+            name: "jobId",
+            type: "string",
+            required: true,
+            description: "ID of the delivery job to accept.",
+          },
+          {
+            name: "shipId",
+            type: "string",
+            required: true,
+            description: "Ship ID accepting the job.",
+          },
+        ],
+      },
+      response: {
+        description: "Returns success status and the accepted job details.",
+        example: {
+          success: true,
+          job: {
+            id: "delivery-0-5-1234567890-0",
+            fromSystemId: 0,
+            toSystemId: 5,
+            goodId: "food",
+            quantity: 25,
+            reward: 33,
+            acceptedBy: "player-Ace%20Pilot",
+            acceptedAt: 1234567900000,
+            createdAt: 1234567890000,
+            expiresAt: 1234571490000,
+          },
+        },
+      },
+      notes: [
+        "Ship must be at the system (phase: at_station) to accept.",
+        "Delivery cargo is added to regular cargo but marked separately.",
+        "Delivery cargo cannot be sold - it can only be delivered.",
+      ],
+    },
+    {
+      method: "POST",
+      path: "/api/system/{id}/delivery-board/complete",
+      description: "Completes a delivery job. The ship must be at the destination system with the required cargo. Upon completion, the ship receives the reward payment.",
+      parameters: [
+        {
+          name: "id",
+          type: "number",
+          required: true,
+          description: "System ID (0-255) where the delivery should be completed (destination system).",
+        },
+      ],
+      requestBody: {
+        fields: [
+          {
+            name: "jobId",
+            type: "string",
+            required: true,
+            description: "ID of the delivery job to complete.",
+          },
+          {
+            name: "shipId",
+            type: "string",
+            required: true,
+            description: "Ship ID completing the delivery.",
+          },
+          {
+            name: "quantity",
+            type: "number",
+            required: true,
+            description: "Quantity being delivered (must match job quantity).",
+          },
+        ],
+      },
+      response: {
+        description: "Returns success status and reward payment.",
+        example: {
+          success: true,
+          reward: 33,
+          jobId: "delivery-0-5-1234567890-0",
+        },
+      },
+      notes: [
+        "Ship must be at the destination system (phase: at_station).",
+        "Ship must have the required quantity of delivery cargo.",
+        "Upon completion, delivery cargo is removed and reward is paid.",
+        "IMPORTANT: Delivery cargo cannot be sold - it's a job, not a trade good. You must complete the delivery at the destination system to get paid.",
+      ],
+    },*/
   ],
   "Ship Operations": [
     {
       method: "GET",
       path: "/api/ship/{id}",
-      description: "Gets the current state of a ship (NPC trader or player ship). Returns location, cargo, credits, travel status, and other ship properties. NPCs are autonomous traders that buy low and sell high, traveling between systems.",
+      description: "Gets the current state of a ship (NPC trader or player ship). Returns location, cargo, credits, travel status, and other ship properties. NPCs are autonomous traders that buy low and sell high, traveling between systems. Player ships work the same way - all trades are canonical and affect markets.",
       parameters: [
         {
           name: "id",
@@ -540,6 +712,7 @@ export const API_DOCUMENTATION: Record<string, ApiEndpoint[]> = {
             missiles: 0,
             ecm: false,
             energyBomb: false,
+            scanner: false,
           },
           fuelLy: 15,
           fuelCapacityLy: 15,
@@ -549,9 +722,11 @@ export const API_DOCUMENTATION: Record<string, ApiEndpoint[]> = {
         "NPC ships make autonomous trading decisions based on deterministic RNG.",
         "Ships can be traveling between systems - check departureTime and arrivalTime.",
         "Cargo is stored as a map of good IDs to quantities.",
+        "Delivery cargo is tracked separately and cannot be sold.",
       ],
     },
-    {
+    // Removed armament endpoints - simplified
+    /*{
       method: "GET",
       path: "/api/ship/{id}?action=armaments",
       description: "Gets current armaments, fuel status, and available upgrades based on the system tech level.",
@@ -571,6 +746,7 @@ export const API_DOCUMENTATION: Record<string, ApiEndpoint[]> = {
             missiles: 2,
             ecm: false,
             energyBomb: false,
+            scanner: false,
           },
           fuelLy: 12,
           fuelCapacityLy: 15,
@@ -580,6 +756,7 @@ export const API_DOCUMENTATION: Record<string, ApiEndpoint[]> = {
             missiles: true,
             ecm: true,
             energyBomb: false,
+            scanner: true,
           },
         },
       },
@@ -606,7 +783,7 @@ export const API_DOCUMENTATION: Record<string, ApiEndpoint[]> = {
             name: "category",
             type: "string",
             required: true,
-            description: "One of: 'laser', 'missile', 'ecm', 'energyBomb', or 'fuel'.",
+            description: "One of: 'laser', 'missile', 'ecm', 'energyBomb', 'scanner', or 'fuel'.",
           },
           {
             name: "mount",
@@ -638,6 +815,7 @@ export const API_DOCUMENTATION: Record<string, ApiEndpoint[]> = {
             missiles: 2,
             ecm: true,
             energyBomb: false,
+            scanner: false,
           },
         },
       },
@@ -645,7 +823,7 @@ export const API_DOCUMENTATION: Record<string, ApiEndpoint[]> = {
         "Purchases require sufficient credits and minimum tech level.",
         "Refueling fills the tank to 15 ly at 2 credits per light year.",
       ],
-    },
+    },*/
     {
       method: "POST",
       path: "/api/ship/{id}",
@@ -682,6 +860,429 @@ export const API_DOCUMENTATION: Record<string, ApiEndpoint[]> = {
         "Ship ticks handle travel completion, trading decisions, and cargo management.",
       ],
     },
+    // Removed delivery endpoints - simplified
+    /*{
+      method: "POST",
+      path: "/api/ship/{id}/delivery/accept",
+      description: "Accepts a delivery job. This endpoint is called by the ship to accept a delivery job from a system. The ship must be at the system where the job is posted.",
+      parameters: [
+        {
+          name: "id",
+          type: "string",
+          required: true,
+          description: "Ship ID.",
+        },
+      ],
+      requestBody: {
+        fields: [
+          {
+            name: "jobId",
+            type: "string",
+            required: true,
+            description: "ID of the delivery job to accept.",
+          },
+          {
+            name: "systemId",
+            type: "number",
+            required: true,
+            description: "System ID where the job is posted.",
+          },
+        ],
+      },
+      response: {
+        description: "Returns success status, job details, and updated delivery cargo.",
+        example: {
+          success: true,
+          job: {
+            id: "delivery-0-5-1234567890-0",
+            fromSystemId: 0,
+            toSystemId: 5,
+            goodId: "food",
+            quantity: 25,
+            reward: 33,
+          },
+          deliveryCargo: {
+            food: {
+              jobId: "delivery-0-5-1234567890-0",
+              goodId: "food",
+              quantity: 25,
+              toSystemId: 5,
+              reward: 33,
+            },
+          },
+        },
+      },
+      notes: [
+        "Ship must be at the system (phase: at_station) to accept.",
+        "Delivery cargo is added to ship's cargo but cannot be sold.",
+      ],
+    },
+    {
+      method: "POST",
+      path: "/api/ship/{id}/delivery/complete",
+      description: "Completes a delivery job. The ship must be at the destination system with the required delivery cargo.",
+      parameters: [
+        {
+          name: "id",
+          type: "string",
+          required: true,
+          description: "Ship ID.",
+        },
+      ],
+      requestBody: {
+        fields: [
+          {
+            name: "jobId",
+            type: "string",
+            required: true,
+            description: "ID of the delivery job to complete.",
+          },
+          {
+            name: "systemId",
+            type: "number",
+            required: true,
+            description: "System ID where delivery should be completed (destination).",
+          },
+        ],
+      },
+      response: {
+        description: "Returns success status, reward payment, and updated credits.",
+        example: {
+          success: true,
+          reward: 33,
+          jobId: "delivery-0-5-1234567890-0",
+          credits: 533,
+        },
+      },
+      notes: [
+        "Ship must be at destination system (phase: at_station).",
+        "Delivery cargo is removed and reward is added to credits.",
+        "IMPORTANT: Delivery cargo cannot be sold - it's a job, not a trade good. You must complete the delivery at the destination system to get paid.",
+      ],
+    },*/
+    // Removed node-map, navigation, encounter, microgame endpoints - simplified
+    /*{
+      method: "GET",
+      path: "/api/ship/{id}/node-map",
+      description: "Gets the sector map for the current system. Returns nodes (points of interest), lanes, discovered sectors, and current sector position for in-system exploration.",
+      parameters: [
+        {
+          name: "id",
+          type: "string",
+          required: true,
+          description: "Ship ID.",
+        },
+      ],
+      response: {
+        description: "Returns the system node map with nodes, lanes, and sector exploration state.",
+        example: {
+          success: true,
+          nodeMap: {
+            systemId: 0,
+            nodes: {
+              "node-0-main": { id: "node-0-main", type: "main_station", positionX: 0, positionY: 0, discovered: true },
+            },
+            lanes: [],
+          },
+          currentNode: "node-0-main",
+          currentSector: { q: 0, r: 0 },
+          discoveredNodes: ["node-0-main"],
+          discoveredSectors: ["0,0"],
+          signals: [],
+        },
+      },
+      notes: [
+        "Ship must be in a system to get the node map.",
+        "Nodes are discovered as the player explores.",
+      ],
+    },
+    {
+      method: "POST",
+      path: "/api/ship/{id}/travel/node",
+      description: "Travels to a node within the current system. Nodes resolve to their sector and use the in-system sector travel rules.",
+      parameters: [
+        {
+          name: "id",
+          type: "string",
+          required: true,
+          description: "Ship ID.",
+        },
+      ],
+      requestBody: {
+        fields: [
+          {
+            name: "nodeId",
+            type: "string",
+            required: true,
+            description: "ID of the node to travel to.",
+          },
+        ],
+      },
+      response: {
+        description: "Returns success status and current node.",
+        example: {
+          success: true,
+          currentNode: "node-0-main",
+        },
+      },
+    },
+    {
+      method: "POST",
+      path: "/api/ship/{id}/travel/sector",
+      description: "Travels to a sector within the current system. Known sectors can path across multiple steps; unknown sectors are one-step moves.",
+      parameters: [
+        {
+          name: "id",
+          type: "string",
+          required: true,
+          description: "Ship ID.",
+        },
+      ],
+      requestBody: {
+        fields: [
+          {
+            name: "q",
+            type: "number",
+            required: true,
+            description: "Axial q coordinate of the target sector.",
+          },
+          {
+            name: "r",
+            type: "number",
+            required: true,
+            description: "Axial r coordinate of the target sector.",
+          },
+        ],
+      },
+      response: {
+        description: "Returns travel outcome, updated sector, and encounter info if triggered.",
+        example: {
+          success: true,
+          currentSector: { q: 1, r: 0 },
+          stepsTraveled: 1,
+          stoppedEarly: false,
+          encounter: null,
+        },
+      },
+    },
+    {
+      method: "GET",
+      path: "/api/ship/{id}/encounter",
+      description: "Gets the current active encounter (if any). Encounters occur during travel and present choices to the player.",
+      parameters: [
+        {
+          name: "id",
+          type: "string",
+          required: true,
+          description: "Ship ID.",
+        },
+      ],
+      response: {
+        description: "Returns the active encounter card with choices, or null if no encounter.",
+        example: {
+          success: true,
+          encounter: {
+            id: "encounter-123",
+            type: "pirate_interdiction",
+            title: "Pirate Interdiction",
+            description: "A pirate vessel has intercepted you.",
+            choices: [
+              { id: 0, text: "Fight", successChance: 0.7 },
+              { id: 1, text: "Flee", successChance: 0.6 },
+            ],
+          },
+        },
+      },
+    },
+    {
+      method: "POST",
+      path: "/api/ship/{id}/encounter/choice",
+      description: "Submits a choice for the current encounter. Resolves the encounter and applies outcomes (credits, hull, cargo, skill XP, etc.).",
+      parameters: [
+        {
+          name: "id",
+          type: "string",
+          required: true,
+          description: "Ship ID.",
+        },
+      ],
+      requestBody: {
+        fields: [
+          {
+            name: "choiceIndex",
+            type: "number",
+            required: true,
+            description: "Index of the choice to make (0-based).",
+          },
+        ],
+      },
+      response: {
+        description: "Returns the encounter outcome with effects applied.",
+        example: {
+          success: true,
+          outcome: {
+            success: true,
+            text: "You successfully defeated the pirates.",
+            effects: { credits: 150, hull: -10 },
+            skillXP: 12.0,
+            opponentSkill: 60,
+          },
+        },
+      },
+    },
+    {
+      method: "POST",
+      path: "/api/ship/{id}/microgame/start",
+      description: "Starts a microgame (fuel scooping, asteroid mining, or docking approach). Microgames are optional skill-based mini-games that provide bonuses if performed well.",
+      parameters: [
+        {
+          name: "id",
+          type: "string",
+          required: true,
+          description: "Ship ID.",
+        },
+      ],
+      requestBody: {
+        fields: [
+          {
+            name: "type",
+            type: "string",
+            required: true,
+            description: "Microgame type: 'fuel_scooping', 'asteroid_mining', or 'docking_approach'.",
+          },
+        ],
+      },
+      response: {
+        description: "Returns the microgame session.",
+        example: {
+          success: true,
+          session: {
+            id: "microgame-123",
+            type: "fuel_scooping",
+            startTime: 1234567890,
+            state: { heat: 30, timeElapsed: 0, completed: false },
+          },
+        },
+      },
+      notes: [
+        "Microgames are optional - players can use auto mode with penalties.",
+        "Performance affects rewards (fuel efficiency, mining yield, docking time).",
+      ],
+    },
+    {
+      method: "POST",
+      path: "/api/ship/{id}/microgame/input",
+      description: "Submits a microgame input update (optional). Use this to update the microgame state during play.",
+      parameters: [
+        {
+          name: "id",
+          type: "string",
+          required: true,
+          description: "Ship ID.",
+        },
+      ],
+      requestBody: {
+        fields: [
+          {
+            name: "action",
+            type: "string",
+            required: true,
+            description: "Input action (e.g. 'adjust_heat', 'move_laser').",
+          },
+          {
+            name: "value",
+            type: "number",
+            required: false,
+            description: "Optional numeric value for the action.",
+          },
+          {
+            name: "position",
+            type: "object",
+            required: false,
+            description: "Optional position payload for the action.",
+          },
+        ],
+      },
+      response: {
+        description: "Returns the updated microgame session state.",
+        example: {
+          success: true,
+          session: {
+            id: "microgame-123",
+            type: "fuel_scooping",
+            state: { heat: 42, timeElapsed: 4.2, completed: false },
+          },
+        },
+      },
+    },
+    {
+      method: "POST",
+      path: "/api/ship/{id}/microgame/complete",
+      description: "Completes the current microgame. Can be called with autoMode=true to skip the microgame (with penalties).",
+      parameters: [
+        {
+          name: "id",
+          type: "string",
+          required: true,
+          description: "Ship ID.",
+        },
+      ],
+      requestBody: {
+        fields: [
+          {
+            name: "autoMode",
+            type: "boolean",
+            required: false,
+            description: "If true, completes with auto mode penalties. Default: false.",
+          },
+          {
+            name: "performance",
+            type: "number",
+            required: false,
+            description: "Optional performance score (0-100) from the client. Ignored in auto mode.",
+          },
+        ],
+      },
+      response: {
+        description: "Returns the microgame result with rewards and penalties.",
+        example: {
+          success: true,
+          result: {
+            success: true,
+            performance: 85,
+            rewards: { fuel: 17 },
+            penalties: {},
+          },
+        },
+      },
+    },*/
+    // Removed skill endpoint - simplified
+    /*{
+      method: "GET",
+      path: "/api/ship/{id}/skill",
+      description: "Gets the ship's combat skill level and experience. Skill improves with victories in encounters, scaled by opponent skill level.",
+      parameters: [
+        {
+          name: "id",
+          type: "string",
+          required: true,
+          description: "Ship ID.",
+        },
+      ],
+      response: {
+        description: "Returns skill level (0-100) and experience points.",
+        example: {
+          success: true,
+          skill: 45,
+          experience: 300,
+        },
+      },
+      notes: [
+        "Skill level affects combat effectiveness (50% of total effectiveness).",
+        "XP is scaled by opponent skill - defeating higher-skilled opponents grants more XP.",
+        "Skill levels: 0-20 (Novice), 21-40 (Apprentice), 41-60 (Competent), 61-80 (Expert), 81-100 (Master).",
+      ],
+    },*/
   ],
 };
 

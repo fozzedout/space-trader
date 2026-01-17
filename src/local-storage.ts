@@ -9,8 +9,106 @@
 import Database from "better-sqlite3";
 import * as fs from "fs";
 import * as path from "path";
-import { SystemState, MarketState, ShipState, ShipId, SystemId, GoodId, ShipPhase, TechLevel, GovernmentType, WorldType } from "./types";
-import { FUEL_TANK_RANGE_LY, getDefaultArmaments } from "./armaments";
+import { SystemState, MarketState, ShipState, ShipId, GoodId, ShipPhase, TechLevel, WorldType } from "./types";
+
+// SQLite query result types
+interface PlayerRow {
+  name: string;
+  ship_id: string;
+  created_at: number;
+  last_seen: number;
+}
+
+interface SystemRow {
+  id: number;
+  name: string;
+  population: number;
+  tech_level: number;
+  world_type: string;
+  seed: string;
+  last_tick_time: number;
+  current_tick: number;
+  x: number | null;
+  y: number | null;
+}
+
+interface MarketRow {
+  system_id: number;
+  good_id: string;
+  base_price: number;
+  supply: number;
+  demand: number;
+  production: number;
+  consumption: number;
+  price: number;
+  inventory: number;
+}
+
+interface ShipInSystemRow {
+  ship_id: string;
+}
+
+interface PendingArrivalRow {
+  system_id: number;
+  ship_id: string;
+  timestamp: number;
+  from_system: number;
+  to_system: number;
+  cargo_json: string;
+  price_info_json: string;
+}
+
+interface ShipRow {
+  id: string;
+  name: string;
+  current_system: number | null;
+  destination_system: number | null;
+  phase: string;
+  departure_start_time: number | null;
+  hyperspace_start_time: number | null;
+  arrival_start_time: number | null;
+  arrival_complete_time: number | null;
+  rest_start_time: number | null;
+  rest_end_time?: number | null;
+  sleep_start_time: number | null;
+  credits: number;
+  fuel_ly: number;
+  fuel_capacity_ly?: number | null;
+  cargo_json: string | null;
+  purchase_prices_json: string | null;
+  armaments_json: string | null;
+  hull_max: number | null;
+  hull_integrity: number | null;
+  route_plan_json: string | null;
+  is_npc?: number;
+  seed?: string;
+  position_x?: number | null;
+  position_y?: number | null;
+  arrival_start_x?: number | null;
+  arrival_start_y?: number | null;
+  origin_system?: number | null;
+  origin_price_info?: string | null;
+  chosen_destination_system_id?: number | null;
+  expected_margin_at_choice_time?: number | null;
+  route_plan_index?: number | null;
+  route_plan_target_system_id?: number | null;
+  route_plan_updated_at?: number | null;
+}
+
+interface CargoRow {
+  good_id: string;
+  quantity: number;
+}
+
+interface PurchasePriceRow {
+  good_id: string;
+  price: number;
+}
+
+interface SqliteError {
+  code?: string;
+  message?: string;
+}
 
 const STORAGE_DIR = path.join(process.cwd(), ".local-storage");
 const DB_PATH = path.join(STORAGE_DIR, "durable-objects.db");
@@ -56,7 +154,6 @@ function getDatabase(): Database.Database {
       population REAL NOT NULL,
       tech_level INTEGER NOT NULL,
       world_type TEXT NOT NULL DEFAULT 'trade_hub',
-      government TEXT NOT NULL,
       seed TEXT NOT NULL,
       last_tick_time INTEGER NOT NULL,
       current_tick INTEGER NOT NULL DEFAULT 0,
@@ -103,7 +200,11 @@ function getDatabase(): Database.Database {
       position_x REAL,
       position_y REAL,
       arrival_start_x REAL,
-      arrival_start_y REAL
+      arrival_start_y REAL,
+      route_plan_json TEXT,
+      route_plan_index INTEGER NOT NULL DEFAULT 0,
+      route_plan_target_system_id INTEGER,
+      route_plan_updated_at INTEGER
     );
 
     -- Ship cargo table (one row per ship+good)
@@ -213,6 +314,18 @@ function getDatabase(): Database.Database {
   if (!columnNames.has("arrival_start_y")) {
     dbInstance.exec("ALTER TABLE ships ADD COLUMN arrival_start_y REAL");
   }
+  if (!columnNames.has("route_plan_json")) {
+    dbInstance.exec("ALTER TABLE ships ADD COLUMN route_plan_json TEXT");
+  }
+  if (!columnNames.has("route_plan_index")) {
+    dbInstance.exec("ALTER TABLE ships ADD COLUMN route_plan_index INTEGER NOT NULL DEFAULT 0");
+  }
+  if (!columnNames.has("route_plan_target_system_id")) {
+    dbInstance.exec("ALTER TABLE ships ADD COLUMN route_plan_target_system_id INTEGER");
+  }
+  if (!columnNames.has("route_plan_updated_at")) {
+    dbInstance.exec("ALTER TABLE ships ADD COLUMN route_plan_updated_at INTEGER");
+  }
 
   return dbInstance;
 }
@@ -235,7 +348,7 @@ export type PlayerRecord = {
 
 export function getPlayerByName(name: string): PlayerRecord | null {
   const db = getDatabase();
-  const row = db.prepare("SELECT name, ship_id, created_at, last_seen FROM players WHERE name = ?").get(name) as any;
+  const row = db.prepare("SELECT name, ship_id, created_at, last_seen FROM players WHERE name = ?").get(name) as PlayerRow | undefined;
   if (!row) return null;
   return {
     name: row.name,
@@ -311,9 +424,14 @@ export class LocalStorage {
     // For "state" key, save to proper tables
     if (key === "state") {
       if (this.objectType === "system") {
-        await this.saveSystemState(value as any);
+        await this.saveSystemState(value as {
+          systemState: SystemState;
+          markets: Array<[GoodId, MarketState]>;
+          shipsInSystem: ShipId[];
+          pendingArrivals?: Array<{ timestamp: number; shipId: string; fromSystem: number; toSystem: number; cargo: Array<[string, number]>; priceInfo: Array<[string, number]> }>;
+        });
       } else {
-        await this.saveShipState(value as any);
+        await this.saveShipState(value as ShipState);
       }
       return;
     }
@@ -412,7 +530,7 @@ export class LocalStorage {
     const systemId = parseInt(this.objectId.replace("system-", ""), 10);
     
     // Load system
-    const systemRow = this.db.prepare("SELECT * FROM systems WHERE id = ?").get(systemId) as any;
+    const systemRow = this.db.prepare("SELECT * FROM systems WHERE id = ?").get(systemId) as SystemRow | undefined;
     if (!systemRow) return undefined;
     
     const systemState: SystemState = {
@@ -421,7 +539,6 @@ export class LocalStorage {
       population: systemRow.population,
       techLevel: systemRow.tech_level as TechLevel,
       worldType: (systemRow.world_type as WorldType) || WorldType.TRADE_HUB,
-      government: systemRow.government as GovernmentType,
       seed: systemRow.seed,
       lastTickTime: systemRow.last_tick_time,
       currentTick: systemRow.current_tick,
@@ -430,7 +547,7 @@ export class LocalStorage {
     };
     
     // Load markets
-    const marketRows = this.db.prepare("SELECT * FROM markets WHERE system_id = ?").all(systemId) as any[];
+    const marketRows = this.db.prepare("SELECT * FROM markets WHERE system_id = ?").all(systemId) as MarketRow[];
     const markets: Array<[GoodId, MarketState]> = marketRows.map(row => [
       row.good_id,
       {
@@ -446,11 +563,11 @@ export class LocalStorage {
     ]);
     
     // Load ships in system
-    const shipRows = this.db.prepare("SELECT ship_id FROM ships_in_systems WHERE system_id = ?").all(systemId) as any[];
+    const shipRows = this.db.prepare("SELECT ship_id FROM ships_in_systems WHERE system_id = ?").all(systemId) as ShipInSystemRow[];
     const shipsInSystem = shipRows.map(row => row.ship_id);
     
     // Load pending arrivals
-    const arrivalRows = this.db.prepare("SELECT * FROM pending_arrivals WHERE system_id = ?").all(systemId) as any[];
+    const arrivalRows = this.db.prepare("SELECT * FROM pending_arrivals WHERE system_id = ?").all(systemId) as PendingArrivalRow[];
     const pendingArrivals = arrivalRows.map(row => ({
       timestamp: row.timestamp,
       shipId: row.ship_id,
@@ -502,14 +619,13 @@ export class LocalStorage {
       const transaction = db.transaction(() => {
       // Prepare statements
       const systemStmt = db.prepare(`
-        INSERT INTO systems (id, name, population, tech_level, world_type, government, seed, last_tick_time, current_tick, x, y)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO systems (id, name, population, tech_level, world_type, seed, last_tick_time, current_tick, x, y)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
           name = excluded.name,
           population = excluded.population,
           tech_level = excluded.tech_level,
           world_type = excluded.world_type,
-          government = excluded.government,
           seed = excluded.seed,
           last_tick_time = excluded.last_tick_time,
           current_tick = excluded.current_tick,
@@ -560,7 +676,6 @@ export class LocalStorage {
           sysData.systemState.population,
           sysData.systemState.techLevel,
           sysData.systemState.worldType,
-          sysData.systemState.government,
           sysData.systemState.seed,
           sysData.systemState.lastTickTime,
           sysData.systemState.currentTick,
@@ -603,9 +718,10 @@ export class LocalStorage {
         for (const shipId of sysData.shipsInSystem) {
           try {
             shipInSystemStmt.run(systemId, shipId);
-          } catch (error: any) {
+          } catch (error: unknown) {
             // Ignore foreign key violations - ship might not exist yet
-            if (error?.code !== 'SQLITE_CONSTRAINT_FOREIGNKEY') {
+            const sqliteError = error as SqliteError;
+            if (sqliteError?.code !== 'SQLITE_CONSTRAINT_FOREIGNKEY') {
               throw error;
             }
           }
@@ -628,9 +744,10 @@ export class LocalStorage {
                 JSON.stringify(arrival.cargo),
                 JSON.stringify(arrival.priceInfo)
               );
-            } catch (error: any) {
+            } catch (error: unknown) {
               // Ignore foreign key violations - ship might not exist yet
-              if (error?.code !== 'SQLITE_CONSTRAINT_FOREIGNKEY') {
+              const sqliteError = error as SqliteError;
+              if (sqliteError?.code !== 'SQLITE_CONSTRAINT_FOREIGNKEY') {
                 throw error;
               }
             }
@@ -640,11 +757,12 @@ export class LocalStorage {
       });
       
       transaction();
-    } catch (error: any) {
+    } catch (error: unknown) {
       // If foreign key constraint fails, it might be because ships don't exist yet
       // This is okay - the relationship will be established when ships are flushed
-      if (error?.code === 'SQLITE_CONSTRAINT_FOREIGNKEY') {
-        console.warn('Foreign key constraint during system flush (ships may not exist yet):', error.message);
+      const sqliteError = error as SqliteError;
+      if (sqliteError?.code === 'SQLITE_CONSTRAINT_FOREIGNKEY') {
+        console.warn('Foreign key constraint during system flush (ships may not exist yet):', sqliteError.message);
       } else {
         throw error;
       }
@@ -656,37 +774,37 @@ export class LocalStorage {
 
   // Ship-specific load/save methods
   private async loadShipState(): Promise<ShipState | undefined> {
-    const shipRow = this.db.prepare("SELECT * FROM ships WHERE id = ?").get(this.objectId) as any;
+    const shipRow = this.db.prepare("SELECT * FROM ships WHERE id = ?").get(this.objectId) as ShipRow | undefined;
     if (!shipRow) return undefined;
     
     // Load cargo
-    const cargoRows = this.db.prepare("SELECT good_id, quantity FROM ship_cargo WHERE ship_id = ?").all(this.objectId) as any[];
+    const cargoRows = this.db.prepare("SELECT good_id, quantity FROM ship_cargo WHERE ship_id = ?").all(this.objectId) as CargoRow[];
     const cargo = new Map<GoodId, number>();
     for (const row of cargoRows) {
       cargo.set(row.good_id, row.quantity);
     }
     
     // Load purchase prices
-    const purchasePriceRows = this.db.prepare("SELECT good_id, price FROM ship_purchase_prices WHERE ship_id = ?").all(this.objectId) as any[];
+    const purchasePriceRows = this.db.prepare("SELECT good_id, price FROM ship_purchase_prices WHERE ship_id = ?").all(this.objectId) as PurchasePriceRow[];
     const purchasePrices = new Map<GoodId, number>();
     for (const row of purchasePriceRows) {
       purchasePrices.set(row.good_id, row.price);
     }
     
-    let armaments = getDefaultArmaments();
-    if (shipRow.armaments_json) {
-      try {
-        const parsed = JSON.parse(shipRow.armaments_json);
-        if (parsed && parsed.lasers && typeof parsed.missiles === "number") {
-          armaments = parsed;
-        }
-      } catch (error) {
-        armaments = getDefaultArmaments();
-      }
-    }
+    // Removed armaments loading - simplified
 
-    const hullMax = shipRow.hull_max ?? 100;
-    const hullIntegrity = shipRow.hull_integrity ?? hullMax;
+    // Removed route planning - simplified
+
+    // Simplified to only core fields
+    // Determine travelStartTime from phase and old time fields
+    let travelStartTime: number | null = null;
+    if (shipRow.phase === "traveling") {
+      // Try to get travel start time from old fields
+      travelStartTime = shipRow.departure_start_time ?? shipRow.hyperspace_start_time ?? null;
+    }
+    
+    // Determine lastTradeTick (simplified - use 0 if not available)
+    const lastTradeTick = 0; // Simplified - no longer tracking this in detail
 
     return {
       id: shipRow.id,
@@ -694,37 +812,13 @@ export class LocalStorage {
       currentSystem: shipRow.current_system,
       destinationSystem: shipRow.destination_system,
       phase: shipRow.phase as ShipPhase,
-      departureStartTime: shipRow.departure_start_time,
-      hyperspaceStartTime: shipRow.hyperspace_start_time,
-      arrivalStartTime: shipRow.arrival_start_time,
-      arrivalCompleteTime: shipRow.arrival_complete_time,
-      restStartTime: shipRow.rest_start_time,
-      restEndTime: shipRow.rest_end_time,
       cargo,
       purchasePrices,
       credits: shipRow.credits,
       isNPC: shipRow.is_npc === 1,
-      seed: shipRow.seed,
-      armaments,
-      fuelLy: shipRow.fuel_ly ?? FUEL_TANK_RANGE_LY,
-      fuelCapacityLy: shipRow.fuel_capacity_ly ?? FUEL_TANK_RANGE_LY,
-      hullIntegrity,
-      hullMax,
-      positionX: shipRow.position_x ?? 0,
-      positionY: shipRow.position_y ?? 0,
-      arrivalStartX: shipRow.arrival_start_x ?? null,
-      arrivalStartY: shipRow.arrival_start_y ?? null,
-      originSystem: shipRow.origin_system ?? null,
-      originPriceInfo: shipRow.origin_price_info ? JSON.parse(shipRow.origin_price_info) : null,
-      chosenDestinationSystemId: shipRow.chosen_destination_system_id ?? null,
-      navigationTargetSystemId: null,
-      expectedMarginAtChoiceTime: shipRow.expected_margin_at_choice_time ?? null,
-      expectedPurchasePriceAtChoiceTime: null,
-      immobileTicks: 0,
-      lastSuccessfulTradeTick: Date.now(),
-      lastSuccessfulTradeDecisionCount: 0,
-      decisionCount: 0,
-      lastCargoPurchaseTick: null,
+      seed: shipRow.seed || "",
+      travelStartTime,
+      lastTradeTick,
     };
   }
 
@@ -776,9 +870,10 @@ export class LocalStorage {
           id, name, current_system, destination_system, phase,
           departure_start_time, hyperspace_start_time, arrival_start_time, arrival_complete_time,
           rest_start_time, rest_end_time, credits, is_npc, seed, fuel_ly, fuel_capacity_ly, hull_integrity, hull_max, armaments_json,
-          position_x, position_y, arrival_start_x, arrival_start_y
+          position_x, position_y, arrival_start_x, arrival_start_y,
+          route_plan_json, route_plan_index, route_plan_target_system_id, route_plan_updated_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
           name = excluded.name,
           current_system = excluded.current_system,
@@ -801,7 +896,11 @@ export class LocalStorage {
           position_x = excluded.position_x,
           position_y = excluded.position_y,
           arrival_start_x = excluded.arrival_start_x,
-          arrival_start_y = excluded.arrival_start_y
+          arrival_start_y = excluded.arrival_start_y,
+          route_plan_json = excluded.route_plan_json,
+          route_plan_index = excluded.route_plan_index,
+          route_plan_target_system_id = excluded.route_plan_target_system_id,
+          route_plan_updated_at = excluded.route_plan_updated_at
       `);
 
       const cargoStmt = db.prepare(`
@@ -816,33 +915,37 @@ export class LocalStorage {
       for (const { data: shipData } of ships) {
         shipIds.push(shipData.id);
 
-        const hullMax = shipData.hullMax ?? 100;
-        const hullIntegrity = shipData.hullIntegrity ?? hullMax;
-
+        // Simplified - only use core fields, set old fields to null/defaults
+        // Use travelStartTime for old time fields (for backward compatibility with DB schema)
+        const travelStartTime = shipData.travelStartTime;
         shipStmt.run(
           shipData.id,
           shipData.name,
           shipData.currentSystem,
           shipData.destinationSystem,
           shipData.phase,
-          shipData.departureStartTime,
-          shipData.hyperspaceStartTime,
-          shipData.arrivalStartTime,
-          shipData.arrivalCompleteTime,
-          shipData.restStartTime,
-          shipData.restEndTime,
+          travelStartTime, // departureStartTime - use travelStartTime
+          travelStartTime, // hyperspaceStartTime - use travelStartTime
+          null, // arrivalStartTime - removed
+          null, // arrivalCompleteTime - removed
+          null, // restStartTime - removed
+          null, // restEndTime - removed
           shipData.credits,
           shipData.isNPC ? 1 : 0,
           shipData.seed,
-          shipData.fuelLy,
-          shipData.fuelCapacityLy,
-          hullIntegrity,
-          hullMax,
-          JSON.stringify(shipData.armaments),
-          shipData.positionX,
-          shipData.positionY,
-          shipData.arrivalStartX,
-          shipData.arrivalStartY
+          null, // fuelLy - removed
+          null, // fuelCapacityLy - removed
+          100, // hullIntegrity - default
+          100, // hullMax - default
+          '{}', // armaments_json - removed
+          null, // positionX - removed
+          null, // positionY - removed
+          null, // arrivalStartX - removed
+          null, // arrivalStartY - removed
+          null, // route_plan_json - removed
+          0, // route_plan_index - removed
+          null, // route_plan_target_system_id - removed
+          null // route_plan_updated_at - removed
         );
       }
 
@@ -919,5 +1022,39 @@ export function closeDatabase(): void {
   if (dbInstance) {
     dbInstance.close();
     dbInstance = null;
+  }
+}
+
+/**
+ * Reset the entire database - clears all data for a fresh start
+ * WARNING: This deletes all systems, ships, markets, and players
+ */
+export function resetDatabase(): void {
+  if (!dbInstance) {
+    getDatabase(); // Ensure database is initialized
+  }
+  
+  if (dbInstance) {
+    // Delete all data from tables (in order to respect foreign keys)
+    dbInstance.exec(`
+      DELETE FROM pending_arrivals;
+      DELETE FROM ships_in_systems;
+      DELETE FROM ship_purchase_prices;
+      DELETE FROM ship_cargo;
+      DELETE FROM ships;
+      DELETE FROM markets;
+      DELETE FROM systems;
+      DELETE FROM players;
+      DELETE FROM durable_object_storage;
+    `);
+    
+    // Reset SQLite sequences/auto-increment (if table exists)
+    try {
+      dbInstance.exec(`
+        DELETE FROM sqlite_sequence WHERE name IN ('systems', 'ships', 'markets');
+      `);
+    } catch (error) {
+      // sqlite_sequence table might not exist, that's fine
+    }
   }
 }

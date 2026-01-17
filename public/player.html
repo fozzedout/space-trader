@@ -518,7 +518,7 @@
         .flight-map {
             position: relative;
             width: 100%;
-            height: 200px;
+            height: 300px;
             background: var(--bg-dark);
             border: 1px solid var(--border);
             border-radius: 8px;
@@ -535,13 +535,33 @@
             border: 1px solid rgba(45, 212, 191, 0.5);
             padding: 8px;
             border-radius: 8px;
-            color: var(--text-primary);
-            font-size: 11px;
-            pointer-events: none;
             display: none;
-            z-index: 2;
-            white-space: pre-line;
-            max-width: 200px;
+        }
+        .galactic-map-container {
+            margin-top: 15px;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            background: var(--bg-dark);
+            padding: 10px;
+        }
+        .galactic-map {
+            position: relative;
+            width: 100%;
+            height: 500px;
+            background: var(--bg-dark);
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            overflow: hidden;
+            cursor: grab;
+            touch-action: none;
+        }
+        .galactic-map:active {
+            cursor: grabbing;
+        }
+        .galactic-map svg {
+            width: 100%;
+            height: 100%;
+            display: block;
         }
         .flight-destination {
             margin-top: 10px;
@@ -551,6 +571,235 @@
         .flight-destination span {
             color: var(--text-primary);
             font-weight: bold;
+        }
+        .encounter-modal {
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.8);
+            display: none;
+            z-index: 1000;
+            align-items: center;
+            justify-content: center;
+        }
+        .encounter-card {
+            background: var(--bg-panel);
+            border: 2px solid var(--accent);
+            border-radius: 8px;
+            padding: 20px;
+            max-width: 90%;
+            max-height: 90%;
+            overflow-y: auto;
+        }
+        .encounter-card h2 {
+            color: var(--accent);
+            margin-bottom: 10px;
+        }
+        .encounter-choices {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            margin-top: 15px;
+        }
+        .encounter-choice {
+            padding: 12px;
+            background: var(--bg-hover);
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .encounter-choice:hover {
+            background: var(--accent);
+            color: var(--bg-dark);
+        }
+        .node-map-view {
+            position: fixed;
+            inset: 0;
+            background: var(--bg-dark);
+            z-index: 900;
+            display: none;
+            padding: 20px;
+        }
+        .node-map-panel {
+            display: grid;
+            grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+            gap: 12px;
+            align-items: stretch;
+        }
+        .node-map-canvas {
+            position: relative;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            padding: 10px;
+            min-height: 280px;
+        }
+        .node-map-canvas canvas {
+            width: 100%;
+            height: 280px;
+            display: block;
+            touch-action: manipulation;
+            cursor: pointer;
+        }
+        .hex-tile {
+            stroke: rgba(148, 163, 184, 0.35);
+            stroke-width: 1;
+            transition: fill 0.2s ease, stroke 0.2s ease;
+        }
+        .hex-unknown {
+            fill: rgba(15, 23, 42, 0.6);
+        }
+        .hex-known {
+            fill: rgba(59, 130, 246, 0.18);
+        }
+        .hex-current {
+            stroke: #a3ffb3;
+            stroke-width: 2;
+        }
+        .hex-selected {
+            stroke: #f59e0b;
+            stroke-width: 2;
+        }
+        .hex-adjacent {
+            stroke: rgba(148, 163, 184, 0.7);
+            stroke-width: 1.5;
+        }
+        .poi-marker {
+            fill: #46d9ff;
+            stroke: #0f172a;
+            stroke-width: 1;
+        }
+        .poi-hidden {
+            fill: rgba(96, 165, 250, 0.2);
+            stroke: rgba(148, 163, 184, 0.6);
+        }
+        .poi-label {
+            font-size: 10px;
+            fill: #94a3b8;
+            pointer-events: none;
+        }
+        .poi-current {
+            fill: #a3ffb3;
+        }
+        .node-map-sidebar {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            font-size: 12px;
+        }
+        .node-map-info {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            padding: 10px;
+            line-height: 1.5;
+        }
+        .node-map-signal-list {
+            display: grid;
+            gap: 6px;
+            margin-top: 6px;
+            font-size: 11px;
+        }
+        .node-map-signal {
+            display: flex;
+            justify-content: space-between;
+            align-items: baseline;
+        }
+        .node-map-signal-kind {
+            color: var(--text-dim);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            font-size: 10px;
+        }
+        .node-map-signal-strength {
+            color: var(--text-secondary);
+            font-variant-numeric: tabular-nums;
+        }
+        .node-map-actions {
+            display: grid;
+            gap: 8px;
+        }
+        .node-map-actions .btn {
+            width: 100%;
+        }
+        .node-map-legend {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            font-size: 11px;
+            color: var(--text-dim);
+        }
+        .node-map-badge {
+            padding: 2px 6px;
+            border-radius: 999px;
+            border: 1px solid var(--border-color);
+            background: var(--bg-hover);
+        }
+        .node-map-page-controls {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 6px;
+            margin-top: 8px;
+        }
+        .node-map-page-controls .btn {
+            padding: 6px;
+            font-size: 11px;
+        }
+        .lane-swatch {
+            display: inline-block;
+            width: 12px;
+            height: 2px;
+            margin-right: 4px;
+            vertical-align: middle;
+            background: currentColor;
+        }
+        .lane-fast { color: #3b82f6; }
+        .lane-safe { color: #10b981; }
+        .lane-stealth { color: #8b5cf6; }
+        .lane-expensive { color: #f59e0b; }
+        .lane-hazardous { color: #ef4444; }
+        @media (max-width: 720px) {
+            .node-map-panel {
+                grid-template-columns: 1fr;
+            }
+            .node-map-canvas svg {
+                height: 220px;
+            }
+        }
+        .microgame-view {
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.9);
+            z-index: 950;
+            display: none;
+            align-items: center;
+            justify-content: center;
+        }
+        .microgame-card {
+            background: var(--bg-panel);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 20px;
+            width: min(420px, 90vw);
+        }
+        .microgame-card h2 {
+            margin: 0 0 10px;
+            color: var(--accent);
+        }
+        .microgame-controls {
+            display: grid;
+            gap: 10px;
+            margin: 12px 0;
+            font-size: 12px;
+        }
+        .microgame-controls label {
+            display: flex;
+            justify-content: space-between;
+            gap: 8px;
+            align-items: center;
+        }
+        .microgame-slider {
+            width: 100%;
         }
         .message {
             padding: 10px;
@@ -711,6 +960,9 @@
                 <div class="status-item">
                     Phase: <span class="status-value" id="phase">-</span>
                 </div>
+                <div class="status-item">
+                    <span class="status-value" id="skillLevel">Skill: 0</span>
+                </div>
                 <button class="refresh-toggle" id="loadGameButton" onclick="loadGame()">Load</button>
                 <button class="refresh-toggle" id="saveGameButton" onclick="saveGame()">Save</button>
             </div>
@@ -731,6 +983,7 @@
                 <button class="subtab active" data-subview="system-info">SYSTEM</button>
                 <button class="subtab" data-subview="system-market">MARKET</button>
                 <button class="subtab" data-subview="system-cargo">CARGO</button>
+                <button class="subtab" data-subview="system-delivery">DELIVERIES</button>
             </div>
             <div class="subview active" id="system-info">
                 <div class="panel">
@@ -784,6 +1037,32 @@
                     </div>
                 </div>
             </div>
+
+            <div class="subview" id="system-delivery">
+                <div class="panel scrollable">
+                    <div class="panel-title">🚚 DELIVERY BOARD</div>
+                    <div class="panel-scroll">
+                        <!-- Delivery completion section at top -->
+                        <div id="deliveryCompleteSection" style="margin-bottom: 15px; padding: 10px; background: var(--bg-secondary); border-radius: 4px; border: 1px solid var(--border-color);"></div>
+                        
+                        <div id="deliveryLoading" class="loading">Loading delivery jobs...</div>
+                        <table class="market-table hidden" id="deliveryTable">
+                            <thead>
+                                <tr>
+                                    <th>Distance</th>
+                                    <th>To System</th>
+                                    <th>Good</th>
+                                    <th>Quantity</th>
+                                    <th>Reward</th>
+                                    <th>Action</th>
+                                </tr>
+                            </thead>
+                            <tbody id="deliveryBody"></tbody>
+                        </table>
+                        <div id="deliveryMessage" style="margin-top: 10px; font-size: 12px; color: var(--text-dim);"></div>
+                    </div>
+                </div>
+            </div>
         </div>
 
         <!-- Flight View -->
@@ -791,7 +1070,9 @@
             <div class="subtabs">
                 <button class="subtab active" data-subview="flight-status-panel">STATUS</button>
                 <button class="subtab" data-subview="flight-destination-panel">DESTINATION</button>
+                <button class="subtab" data-subview="flight-node-map-panel">SECTOR MAP</button>
                 <button class="subtab" data-subview="flight-requests-panel">REQUESTS</button>
+                <button class="subtab" data-subview="flight-galactic-map-panel">GALACTIC MAP</button>
             </div>
             <div class="subview active" id="flight-status-panel">
                 <div class="panel">
@@ -810,8 +1091,65 @@
                         <div id="flightMapTooltip" class="flight-map-tooltip"></div>
                     </div>
                     <div class="flight-destination">Selected: <span id="selectedDestination">None</span></div>
-                    <button class="btn" id="btnTravel" onclick="initiateTravel()">LAUNCH</button>
+                    <button class="btn" id="btnTravel" onclick="initiateTravel()">JUMP</button>
                     <div id="travelMessage"></div>
+                </div>
+            </div>
+            <div class="subview" id="flight-node-map-panel">
+                <div class="panel">
+                    <div class="panel-title">🛰️ IN-SYSTEM NAVIGATION</div>
+                    <div class="node-map-panel">
+                        <div class="node-map-canvas" id="nodeMapCanvas">
+                            <canvas id="nodeMapSurface"></canvas>
+                            <div id="nodeMapTooltip" class="flight-map-tooltip"></div>
+                        </div>
+                        <div class="node-map-sidebar">
+                            <div class="node-map-info">
+                                <div>Current Sector: <span id="currentSectorLabel">-</span></div>
+                                <div>Nearest POI: <span id="currentNodeLabel">-</span></div>
+                                <div>Target Sector: <span id="selectedNodeLabel">None</span></div>
+                                <div>Phase: <span id="nodeMapPhaseLabel">-</span></div>
+                            </div>
+                            <div class="node-map-info">
+                                <div>Page: <span id="sectorPageLabel">-</span></div>
+                                <div class="node-map-page-controls">
+                                    <button class="btn" onclick="shiftSectorPage(0, -1)">Up</button>
+                                    <button class="btn" onclick="centerSectorPage()">Center</button>
+                                    <button class="btn" onclick="shiftSectorPage(0, 1)">Down</button>
+                                    <button class="btn" onclick="shiftSectorPage(-1, 0)">Left</button>
+                                    <button class="btn" onclick="shiftSectorPage(1, 0)">Right</button>
+                                </div>
+                            </div>
+                            <div class="node-map-info" id="nodeMapSignals">
+                                <div style="color: var(--text-secondary);">Signals: none detected.</div>
+                            </div>
+                            <div class="node-map-actions">
+                                <button class="btn" id="btnNodeTravel" onclick="initiateNodeTravel()">TRAVEL TO SECTOR</button>
+                                <button class="btn" id="btnNodeRefresh" onclick="loadNodeMap(true)">REFRESH MAP</button>
+                            </div>
+                            <div class="node-map-info" id="nodeActionPanel">
+                                <div style="color: var(--text-secondary);">Node actions will appear here.</div>
+                            </div>
+                            <div class="node-map-legend">
+                                <span class="node-map-badge">▣ Known Sector</span>
+                                <span class="node-map-badge">▢ Unknown Sector</span>
+                                <span class="node-map-badge">◆ Current</span>
+                                <span class="node-map-badge">✦ Target</span>
+                                <span class="node-map-badge lane-fast"><span class="lane-swatch"></span>Fast</span>
+                                <span class="node-map-badge lane-safe"><span class="lane-swatch"></span>Safe</span>
+                                <span class="node-map-badge lane-stealth"><span class="lane-swatch"></span>Stealth</span>
+                                <span class="node-map-badge lane-expensive"><span class="lane-swatch"></span>Expensive</span>
+                                <span class="node-map-badge lane-hazardous"><span class="lane-swatch"></span>Hazardous</span>
+                            </div>
+                            <div class="node-map-legend">
+                                <span class="node-map-badge">ST Station</span>
+                                <span class="node-map-badge">SU Sun</span>
+                                <span class="node-map-badge">PL Planet</span>
+                                <span class="node-map-badge">POI Other</span>
+                            </div>
+                            <div id="nodeMapMessage"></div>
+                        </div>
+                    </div>
                 </div>
             </div>
             <div class="subview" id="flight-requests-panel">
@@ -836,6 +1174,17 @@
                             <tbody id="requestBody"></tbody>
                         </table>
                         <div class="trade-status" id="requestRouteInfo">Select a request to see a route.</div>
+                    </div>
+                </div>
+            </div>
+            <div class="subview" id="flight-galactic-map-panel">
+                <div class="panel">
+                    <div class="panel-title">🌌 GALACTIC MAP</div>
+                    <div class="galactic-map-container">
+                        <div class="galactic-map" id="galacticMap">
+                            <svg id="galacticMapSvg"></svg>
+                            <div id="galacticMapTooltip" class="flight-map-tooltip"></div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -1015,6 +1364,10 @@
                         <div class="info-label">Energy Bomb</div>
                         <div class="info-value" id="energyBombStatus">-</div>
                     </div>
+                    <div class="info-item">
+                        <div class="info-label">Scanner</div>
+                        <div class="info-value" id="scannerStatus">-</div>
+                    </div>
                 </div>
 
                 <div class="input-group">
@@ -1056,6 +1409,14 @@
                     </div>
                 </div>
 
+                <div class="input-group">
+                    <label>Advanced Scanner</label>
+                    <div class="qty-controls">
+                        <button class="btn" id="btnBuyScanner" onclick="buyScanner()">Buy Scanner</button>
+                        <button class="btn btn-danger" id="btnSellScanner" onclick="sellScanner()">Sell Scanner</button>
+                    </div>
+                </div>
+
                 <div class="trade-status" id="armamentStatus">Ready.</div>
             </div>
         </div>
@@ -1078,17 +1439,41 @@
         let galaxyMapData = null;
         let selectedDestination = null;
         let selectedDestinationDistance = null;
+        let nodeMapData = null;
+        let selectedNodeId = null;
+        let selectedSector = null;
+        let lastNodeMapSystemId = null;
+        let lastNodeMapFetch = 0;
+        let sectorMapState = {
+            pageSize: 20,
+            pageOriginQ: 0,
+            pageOriginR: 0,
+            cellSize: 0,
+            offsetX: 0,
+            offsetY: 0,
+            userSetPage: false
+        };
+        let sectorMapInteractionsBound = false;
+        let activeMicrogameSession = null;
         let lastMaxBuy = 0;
         let lastMaxSell = 0;
         let galaxyRequestsData = null;
         let lastRequestFetch = 0;
         const REQUEST_REFRESH_MS = 15000;
+        let deliveryBoardData = null;
+        let lastDeliveryFetch = 0;
+        const DELIVERY_REFRESH_MS = 15000;
         let garageData = null;
         let lastShipPhase = null;
         let pendingArrivalUi = false;
         let requestScope = 'local';
         let selectedRequestPath = null;
         let selectedRequestTarget = null;
+        const LOW_REFRESH_MODE = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+            || window.location.search.includes('lowrefresh=1');
+        const MAP_HOVER_ENABLED = window.matchMedia('(hover: hover)').matches && !LOW_REFRESH_MODE;
+        const AUTO_REFRESH_MS = LOW_REFRESH_MODE ? 8000 : 2000;
+        const NODE_MAP_REFRESH_MS = LOW_REFRESH_MODE ? 10000 : 2000;
 
         // Initialize
         document.addEventListener('DOMContentLoaded', async () => {
@@ -1141,6 +1526,17 @@
                         });
                         if (targetId === 'flight-requests-panel') {
                             void updateRequestBoard(true);
+                        } else if (targetId === 'system-delivery') {
+                            void updateDeliveryBoard(true);
+                        } else if (targetId === 'flight-node-map-panel') {
+                            void loadNodeMap(true);
+                        } else if (targetId === 'flight-galactic-map-panel') {
+                            // Render galactic map when tab is shown
+                            setTimeout(() => {
+                                if (document.getElementById('flight-galactic-map-panel')?.classList.contains('active')) {
+                                    renderGalacticMap();
+                                }
+                            }, 50);
                         }
                     });
                 });
@@ -1314,12 +1710,31 @@
             }
         }
 
+        function normalizeShipState(state) {
+            if (!state) return;
+            if (state.discoveredNodes && !(state.discoveredNodes instanceof Set)) {
+                if (Array.isArray(state.discoveredNodes)) {
+                    state.discoveredNodes = new Set(state.discoveredNodes);
+                } else if (typeof state.discoveredNodes === 'object') {
+                    state.discoveredNodes = new Set(Object.values(state.discoveredNodes));
+                } else {
+                    state.discoveredNodes = new Set();
+                }
+            }
+        }
+
         async function refreshData() {
             try {
                 // Get ship state
                 const { response: shipResponse, data: shipData } = await shipApi(`/api/ship/${playerShipId}`);
                 if (!shipResponse.ok) throw new Error('Failed to get ship state');
                 currentShipState = shipData;
+                normalizeShipState(currentShipState);
+                if (nodeMapData && currentShipState?.currentSystem !== nodeMapData.systemId) {
+                    nodeMapData = null;
+                    selectedNodeId = null;
+                    selectedSector = null;
+                }
 
                 if (currentShipState?.phase && currentShipState.phase !== 'at_station') {
                     const { response: tickResponse } = await shipApi(`/api/ship/${playerShipId}?action=tick`, { method: 'POST' });
@@ -1353,6 +1768,16 @@
 
                 // Update flight view
                 updateFlightView();
+                if (document.getElementById('flight-node-map-panel')?.classList.contains('active')) {
+                    void loadNodeMap(false);
+                }
+                if (currentShipState?.phase === 'microgame_active' && currentShipState.activeMicrogame && !activeMicrogameSession) {
+                    showMicrogameInterface(currentShipState.activeMicrogame);
+                } else if (activeMicrogameSession && currentShipState?.phase !== 'microgame_active') {
+                    const gameView = document.getElementById('microgameView');
+                    if (gameView) gameView.style.display = 'none';
+                    activeMicrogameSession = null;
+                }
 
                 // Update trading view
                 if (!isUserInteracting && !tradePending) {
@@ -1392,6 +1817,9 @@
                 await ensureGalaxyMapData();
                 renderFlightMap();
                 await updateRequestBoard();
+                
+                // Update delivery board
+                await updateDeliveryBoard();
             } catch (error) {
                 console.error('System view error:', error);
             }
@@ -1555,10 +1983,16 @@
                     const routeLabel = selectedRequestPath.join(' -> ');
                     routeInfo.textContent = `Route to System ${systemId} (${goodId.toUpperCase()}): ${routeLabel} (click to clear)`;
                     routeInfo.onclick = clearRequestRoute;
+                    // Switch to galactic map tab and render
+                    setSubtabActive('view-flight', 'flight-galactic-map-panel');
+                    // Reset zoom/pan when showing new route
+                    galacticMapState.zoom = 1;
+                    galacticMapState.panX = 0;
+                    galacticMapState.panY = 0;
+                    // Small delay to ensure tab is visible before rendering
+                    setTimeout(() => renderGalacticMap(), 100);
                 }
             }
-
-            renderFlightMap();
         }
 
         function clearRequestRoute() {
@@ -1569,7 +2003,336 @@
                 routeInfo.textContent = 'Select a request to see a route.';
                 routeInfo.onclick = null;
             }
-            renderFlightMap();
+            renderGalacticMap();
+        }
+
+        async function updateDeliveryBoard(force = false) {
+            const panel = document.getElementById('system-delivery');
+            if (!force && (!panel || !panel.classList.contains('active'))) return;
+            const currentSystemId = currentShipState?.currentSystem;
+            if (currentSystemId === null || currentSystemId === undefined) return;
+            
+            const now = Date.now();
+            if (!force && now - lastDeliveryFetch < DELIVERY_REFRESH_MS) {
+                renderDeliveryBoard();
+                return;
+            }
+
+            const loading = document.getElementById('deliveryLoading');
+            if (loading) {
+                loading.textContent = 'Loading delivery jobs...';
+                loading.classList.remove('hidden');
+            }
+
+            try {
+                // Ensure galaxy map data is available for distance calculations
+                await ensureGalaxyMapData();
+                
+                const response = await fetch(`/api/system/${currentSystemId}/delivery-board`);
+                if (!response.ok) throw new Error('Failed to fetch delivery board');
+                deliveryBoardData = await response.json();
+                lastDeliveryFetch = now;
+            } catch (error) {
+                deliveryBoardData = null;
+                console.error('Delivery board fetch error:', error);
+            }
+
+            renderDeliveryBoard();
+        }
+
+        function renderDeliveryBoard() {
+            const tbody = document.getElementById('deliveryBody');
+            const table = document.getElementById('deliveryTable');
+            const loading = document.getElementById('deliveryLoading');
+            const messageDiv = document.getElementById('deliveryMessage');
+            if (!tbody || !table || !loading) return;
+
+            tbody.innerHTML = '';
+
+            const jobs = deliveryBoardData?.jobs || [];
+            if (jobs.length === 0) {
+                loading.textContent = 'No delivery jobs available';
+                loading.classList.remove('hidden');
+                table.classList.add('hidden');
+                if (messageDiv) {
+                    messageDiv.textContent = 'Check back later for delivery opportunities.';
+                }
+                return;
+            }
+
+            loading.classList.add('hidden');
+            table.classList.remove('hidden');
+
+            // Get current ship's delivery cargo to show which jobs are already accepted
+            let shipDeliveryCargo = currentShipState?.deliveryCargo || {};
+            if (shipDeliveryCargo instanceof Map) {
+                shipDeliveryCargo = Object.fromEntries(shipDeliveryCargo);
+            }
+
+            // Calculate distance for each job and sort by distance, then by cargo type
+            const currentSystemId = currentShipState?.currentSystem;
+            const jobsWithDistance = jobs.map(job => {
+                const distance = getMapDistance(job.toSystemId);
+                return {
+                    ...job,
+                    distance: distance !== null ? distance : Infinity, // Put unreachable jobs at end
+                };
+            });
+
+            // Sort by distance (ascending), then by goodId (alphabetically)
+            jobsWithDistance.sort((a, b) => {
+                // First sort by distance
+                if (a.distance !== b.distance) {
+                    return a.distance - b.distance;
+                }
+                // Then sort by cargo type (goodId) alphabetically
+                return a.goodId.localeCompare(b.goodId);
+            });
+
+            jobsWithDistance.forEach(job => {
+                const row = document.createElement('tr');
+                const isAccepted = shipDeliveryCargo[job.id] !== undefined;
+                
+                const distanceCell = document.createElement('td');
+                if (job.distance !== Infinity && job.distance !== null) {
+                    distanceCell.textContent = `${job.distance.toFixed(1)} LY`;
+                } else {
+                    distanceCell.textContent = '-';
+                    distanceCell.style.color = 'var(--text-dim)';
+                }
+                
+                const toSystemCell = document.createElement('td');
+                toSystemCell.textContent = job.toSystemId;
+                
+                const goodCell = document.createElement('td');
+                goodCell.textContent = job.goodId.toUpperCase();
+                
+                const quantityCell = document.createElement('td');
+                quantityCell.textContent = job.quantity;
+                
+                const rewardCell = document.createElement('td');
+                rewardCell.textContent = `${job.reward.toFixed(0)} cr`;
+                
+                const actionCell = document.createElement('td');
+                if (isAccepted) {
+                    const span = document.createElement('span');
+                    span.style.color = 'var(--accent)';
+                    span.textContent = 'ACCEPTED';
+                    actionCell.appendChild(span);
+                } else {
+                    const button = document.createElement('button');
+                    button.className = 'btn';
+                    button.style.padding = '4px 8px';
+                    button.style.fontSize = '11px';
+                    button.textContent = 'ACCEPT';
+                    button.addEventListener('click', () => acceptDeliveryJob(job.id, job.fromSystemId, button));
+                    actionCell.appendChild(button);
+                }
+                
+                row.appendChild(distanceCell);
+                row.appendChild(toSystemCell);
+                row.appendChild(goodCell);
+                row.appendChild(quantityCell);
+                row.appendChild(rewardCell);
+                row.appendChild(actionCell);
+                tbody.appendChild(row);
+            });
+
+            // Check if ship has delivery cargo to complete - show at top
+            const completeSection = document.getElementById('deliveryCompleteSection');
+            const activeDeliveries = Object.values(shipDeliveryCargo).filter(d => d && d.toSystemId === currentShipState?.currentSystem);
+            if (activeDeliveries.length > 0 && completeSection) {
+                completeSection.innerHTML = '';
+                completeSection.style.display = 'block';
+                
+                const header = document.createElement('div');
+                header.style.fontWeight = 'bold';
+                header.style.marginBottom = '8px';
+                header.style.color = 'var(--accent-color)';
+                header.textContent = `✅ ${activeDeliveries.length} Delivery${activeDeliveries.length > 1 ? 'ies' : ''} Ready to Complete`;
+                completeSection.appendChild(header);
+                
+                const info = document.createElement('div');
+                info.style.fontSize = '12px';
+                info.style.marginBottom = '10px';
+                info.style.color = 'var(--text-dim)';
+                const totalReward = activeDeliveries.reduce((sum, d) => sum + (d.reward || 0), 0);
+                info.textContent = `Total reward: ${totalReward.toFixed(0)} cr`;
+                completeSection.appendChild(info);
+                
+                const button = document.createElement('button');
+                button.className = 'btn';
+                button.style.padding = '8px 16px';
+                button.style.fontSize = '14px';
+                button.style.width = '100%';
+                button.textContent = 'COMPLETE DELIVERY';
+                button.addEventListener('click', completeActiveDeliveries);
+                completeSection.appendChild(button);
+            } else if (completeSection) {
+                completeSection.style.display = 'none';
+                completeSection.innerHTML = '';
+            }
+            
+            // Clear bottom message (used for other messages)
+            if (messageDiv) {
+                messageDiv.textContent = '';
+            }
+        }
+
+        async function acceptDeliveryJob(jobId, systemId, triggerButton) {
+            const messageDiv = document.getElementById('deliveryMessage');
+            const resolvedSystemId = deliveryBoardData?.systemId ?? currentShipState?.currentSystem ?? systemId;
+            if (resolvedSystemId === null || resolvedSystemId === undefined) {
+                const errorText = 'Cannot accept delivery job: missing system ID';
+                showBanner('error', errorText);
+                showMessage('error', errorText, messageDiv);
+                return;
+            }
+            if (currentShipState?.phase !== 'at_station') {
+                const errorText = 'Must be docked to accept delivery jobs';
+                showBanner('error', errorText);
+                showMessage('error', errorText, messageDiv);
+                return;
+            }
+
+            showBanner('info', 'Accepting delivery job...');
+            showMessage('info', 'Accepting delivery job...', messageDiv);
+            setButtonPending(triggerButton, 'ACCEPTING...', true);
+            
+            try {
+                const { response, data } = await shipApi(`/api/ship/${playerShipId}/delivery/accept`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        jobId: jobId,
+                        systemId: resolvedSystemId
+                    })
+                });
+
+                if (response.ok && data.success) {
+                    if (!data.job) {
+                        const errorText = 'Error: Job data missing from response';
+                        showBanner('error', errorText);
+                        showMessage('error', errorText, messageDiv);
+                        console.error('Missing job data in response:', data);
+                        return;
+                    }
+                    const successText = `Delivery job accepted! Deliver ${data.job.quantity} ${data.job.goodId} to System ${data.job.toSystemId}`;
+                    showBanner('success', successText);
+                    showMessage('success', successText, messageDiv);
+                    // Refresh ship state and delivery board
+                    await refreshData();
+                    await updateDeliveryBoard(true);
+                } else {
+                    const errorMsg = data.error || data.message || `Failed to accept delivery job (${response.status})`;
+                    showBanner('error', errorMsg);
+                    showMessage('error', errorMsg, messageDiv);
+                    console.error('Failed to accept delivery job:', data);
+                }
+            } catch (error) {
+                const errorMsg = error instanceof Error ? error.message : String(error);
+                showBanner('error', `Error: ${errorMsg}`);
+                showMessage('error', `Error: ${errorMsg}`, messageDiv);
+                console.error('Error accepting delivery job:', error);
+            } finally {
+                setButtonPending(triggerButton, 'ACCEPTING...', false);
+            }
+        }
+
+        async function completeActiveDeliveries() {
+            const completeSection = document.getElementById('deliveryCompleteSection');
+            const messageDiv = document.getElementById('deliveryMessage');
+            
+            if (currentShipState?.phase !== 'at_station') {
+                if (completeSection) {
+                    completeSection.innerHTML = '<div style="color: var(--error-color);">Must be docked to complete deliveries</div>';
+                }
+                return;
+            }
+
+            const currentSystemId = currentShipState?.currentSystem;
+            if (currentSystemId === null || currentSystemId === undefined) {
+                if (completeSection) {
+                    completeSection.innerHTML = '<div style="color: var(--error-color);">Invalid system</div>';
+                }
+                return;
+            }
+
+            let deliveryCargo = currentShipState?.deliveryCargo || {};
+            if (deliveryCargo instanceof Map) {
+                deliveryCargo = Object.fromEntries(deliveryCargo);
+            }
+
+            const activeDeliveries = Object.values(deliveryCargo).filter(d => d && d.toSystemId === currentSystemId);
+            if (activeDeliveries.length === 0) {
+                if (completeSection) {
+                    completeSection.innerHTML = '<div style="color: var(--text-dim);">No deliveries to complete at this system</div>';
+                }
+                return;
+            }
+
+            // Show loading state
+            if (completeSection) {
+                completeSection.innerHTML = '<div style="color: var(--text-dim);">Completing deliveries...</div>';
+            }
+
+            // Complete each delivery
+            let completed = 0;
+            let totalReward = 0;
+            const errors = [];
+            for (const delivery of activeDeliveries) {
+                try {
+                    const response = await fetch(`/api/ship/${playerShipId}/delivery/complete`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            jobId: delivery.jobId,
+                            systemId: currentSystemId
+                        })
+                    });
+
+                    const data = await response.json();
+                    if (response.ok && data.success) {
+                        completed++;
+                        totalReward += data.reward || 0;
+                    } else {
+                        const errorMsg = data.error || `HTTP ${response.status}`;
+                        errors.push(`${delivery.goodId} (${delivery.quantity}): ${errorMsg}`);
+                        console.error('Failed to complete delivery:', delivery.jobId, errorMsg);
+                    }
+                } catch (error) {
+                    const errorMsg = error instanceof Error ? error.message : String(error);
+                    errors.push(`${delivery.goodId} (${delivery.quantity}): ${errorMsg}`);
+                    console.error('Error completing delivery:', error);
+                }
+            }
+
+            if (completed > 0) {
+                if (completeSection) {
+                    completeSection.innerHTML = `<div style="color: var(--success-color); font-weight: bold; padding: 10px; background: var(--bg-primary); border-radius: 4px;">
+                        ✅ Completed ${completed} delivery${completed > 1 ? 'ies' : ''}!<br>
+                        <span style="font-size: 14px;">Received ${totalReward.toFixed(0)} cr</span>
+                    </div>`;
+                }
+                showBanner('success', `Completed ${completed} delivery${completed > 1 ? 'ies' : ''}! Received ${totalReward.toFixed(0)} cr`);
+                await refreshData();
+                await updateDeliveryBoard(true);
+            } else {
+                let errorMessage = 'Failed to complete deliveries';
+                if (errors.length > 0) {
+                    errorMessage += ': ' + errors[0];
+                    if (errors.length > 1) {
+                        errorMessage += ` (and ${errors.length - 1} more)`;
+                    }
+                }
+                if (completeSection) {
+                    completeSection.innerHTML = `<div style="color: var(--error-color); padding: 10px; background: var(--bg-secondary); border-radius: 4px;">
+                        ❌ ${errorMessage}
+                        ${errors.length > 0 ? '<div style="font-size: 11px; margin-top: 5px; color: var(--text-dim);">' + errors.slice(0, 3).join('<br>') + '</div>' : ''}
+                    </div>`;
+                }
+                showBanner('error', errorMessage);
+            }
         }
 
         function findRoutePath(startId, targetId, systems, maxHopDistance) {
@@ -1622,6 +2385,12 @@
                 cargo = Object.fromEntries(cargo);
             }
             
+            // Get delivery cargo
+            let deliveryCargo = currentShipState?.deliveryCargo || {};
+            if (deliveryCargo instanceof Map) {
+                deliveryCargo = Object.fromEntries(deliveryCargo);
+            }
+            
             const entries = Object.entries(cargo).filter(([_, qty]) => qty > 0);
             if (entries.length === 0) {
                 cargoList.innerHTML = '<div class="loading">No cargo</div>';
@@ -1632,10 +2401,18 @@
             const ul = cargoList.querySelector('ul');
 
             entries.forEach(([goodId, quantity]) => {
+                const delivery = deliveryCargo[goodId];
+                const deliveryQty = delivery ? delivery.quantity : 0;
+                const sellableQty = quantity - deliveryQty;
+                
                 const li = document.createElement('li');
                 li.className = 'cargo-item';
+                let displayText = `${goodId.toUpperCase()}`;
+                if (deliveryQty > 0) {
+                    displayText += ` <span style="color: var(--accent); font-size: 11px;">(${deliveryQty} delivery)</span>`;
+                }
                 li.innerHTML = `
-                    <span>${goodId.toUpperCase()}</span>
+                    <span>${displayText}</span>
                     <span class="status-value">${quantity}</span>
                 `;
                 ul.appendChild(li);
@@ -1666,11 +2443,11 @@
             if (phase === 'departing') {
                 return getProgressData(currentShipState.departureStartTime, null, DEPARTURE_TIME_MS);
             }
-            if (phase === 'in_hyperspace') {
+            if (phase === 'in_hyperspace' || phase === 'inter_system_jump') {
                 const arrivalMark = currentShipState.arrivalStartTime ?? currentShipState.arrivalCompleteTime;
                 return getProgressData(currentShipState.hyperspaceStartTime, arrivalMark, null);
             }
-            if (phase === 'arriving') {
+            if (phase === 'arriving' || phase === 'docking') {
                 return getProgressData(currentShipState.arrivalStartTime, currentShipState.arrivalCompleteTime, ARRIVAL_TIME_MS);
             }
             return null;
@@ -1685,15 +2462,20 @@
             }
 
             const phase = currentShipState.phase || 'unknown';
-            const fromSystem = phase === 'arriving'
-                ? (currentShipState.originSystem ?? currentShipState.currentSystem ?? '?')
-                : (currentShipState.currentSystem ?? currentShipState.originSystem ?? '?');
+            const fromSystem = currentShipState.originSystem ?? currentShipState.currentSystem ?? '?';
+            const currentSystem = currentShipState.currentSystem ?? '?';
             const toSystem = currentShipState.destinationSystem ?? '?';
+            const currentNode = currentShipState.currentNode || 'node-unknown';
             const lines = [];
 
             if (phase === 'at_station') {
-                lines.push(`Docked at System ${fromSystem}.`);
-                lines.push('All systems nominal. Ready for launch.');
+                lines.push(`Docked at System ${currentSystem}.`);
+                lines.push('Launch to enter system space.');
+                lines.push('Clear the station to at least 1 SU before jumping.');
+            } else if (phase === 'inter_system_jump') {
+                lines.push(`Inter-system jump in progress.`);
+                lines.push(`Route: System ${fromSystem} → System ${toSystem}.`);
+                lines.push('Navigation locked. Stand by.');
             } else if (phase === 'departing') {
                 const progress = getTravelProgress(phase);
                 lines.push(`Departure burn from System ${fromSystem}.`);
@@ -1724,6 +2506,37 @@
                 } else {
                     lines.push('Final approach in progress...');
                 }
+            } else if (phase === 'docking') {
+                const progress = getTravelProgress(phase);
+                lines.push(`Docking approach active in System ${currentSystem}.`);
+                if (progress) {
+                    lines.push(`Approach: ${progress.percent}% (${formatSeconds(progress.elapsed)} / ${formatSeconds(progress.total)}).`);
+                    lines.push(`Docking in ${formatSeconds(progress.remaining)}.`);
+                } else {
+                    lines.push('Final approach in progress...');
+                }
+            } else if (phase === 'in_system_exploring') {
+                const currentSector = getCurrentSector();
+                const sectorLabel = currentSector ? `${currentSector.q}, ${currentSector.r}` : 'Unknown';
+                const currentPoi = currentShipState?.currentNode
+                    ? (nodeMapData?.nodes?.[currentShipState.currentNode]?.name || currentShipState.currentNode)
+                    : 'Deep Space';
+                lines.push(`In-system navigation active in System ${currentSystem}.`);
+                lines.push(`Current sector: ${sectorLabel}.`);
+                lines.push(`Nearest POI: ${currentPoi}.`);
+                if (canJumpFromCurrentSector()) {
+                    lines.push('Jump window open. Select a destination to hyperspace.');
+                } else if (isInDockingRange()) {
+                    lines.push('Docking range: station access available.');
+                } else {
+                    lines.push('Clear the station to 1 SU to jump or continue exploring.');
+                }
+            } else if (phase === 'encounter_active') {
+                lines.push('Encounter in progress.');
+                lines.push('Resolve encounter to continue.');
+            } else if (phase === 'microgame_active') {
+                lines.push('Microgame active.');
+                lines.push('Complete the task to continue.');
             } else {
                 lines.push(`Status: ${phase.toUpperCase()}.`);
             }
@@ -1753,6 +2566,11 @@
             setSubtabActive('view-flight', 'flight-status-panel');
         }
 
+        function switchToNodeMap() {
+            switchView('flight');
+            setSubtabActive('view-flight', 'flight-node-map-panel');
+        }
+
         function setSubtabActive(viewId, subviewId) {
             const view = document.getElementById(viewId);
             if (!view) return;
@@ -1763,6 +2581,10 @@
             view.querySelectorAll('.subview').forEach(subview => {
                 subview.classList.toggle('active', subview.id === subviewId);
             });
+
+            if (viewId === 'view-flight' && subviewId === 'flight-node-map-panel') {
+                loadNodeMap(true);
+            }
         }
 
         function autoSelectFirstSellItem() {
@@ -1788,11 +2610,99 @@
             if (phase === 'at_station') {
                 flightStatus.innerHTML = `
                     <h2>DOCKED</h2>
-                    <p style="color: var(--text-secondary);">Ready for launch</p>
+                    <p style="color: var(--text-secondary);">Launch to enter system space.</p>
+                    <div class="btn-group">
+                        <button class="btn" onclick="launchFromStation()">LAUNCH</button>
+                        <button class="btn" onclick="switchToNodeMap()">NODE MAP</button>
+                    </div>
+                    <div id="flightMessage"></div>
                     <div class="flight-console" id="flightConsole"></div>
                 `;
-                document.getElementById('btnTravel').disabled = false;
+                document.getElementById('btnTravel').disabled = true;
+            } else if (phase === 'encounter_active') {
+                // Show encounter card
+                const encounter = currentShipState?.activeEncounter;
+                if (encounter) {
+                    showEncounterCard(encounter);
+                } else {
+                    flightStatus.innerHTML = `
+                        <h2>ENCOUNTER</h2>
+                        <p style="color: var(--text-secondary);">Resolving encounter...</p>
+                        <div class="flight-console" id="flightConsole"></div>
+                    `;
+                }
+                document.getElementById('btnTravel').disabled = true;
+            } else if (phase === 'inter_system_jump') {
+                flightStatus.innerHTML = `
+                    <h2>IN HYPERSPACE</h2>
+                    <p style="color: var(--text-secondary); margin: 10px 0;">
+                        From: System ${currentSystem ?? originSystem ?? '?'}<br>
+                        To: System ${currentShipState?.destinationSystem || '?'}
+                    </p>
+                    <div class="progress-bar">
+                        <div class="progress-fill animating" style="width: 100%;">JUMPING...</div>
+                    </div>
+                    <div class="flight-console" id="flightConsole"></div>
+                `;
+                document.getElementById('btnTravel').disabled = true;
+            } else if (phase === 'in_system_exploring') {
+                const currentSector = getCurrentSector();
+                const sectorLabel = currentSector ? `${currentSector.q}, ${currentSector.r}` : 'Unknown';
+                const currentPoi = currentShipState?.currentNode
+                    ? (nodeMapData?.nodes?.[currentShipState.currentNode]?.name || currentShipState.currentNode)
+                    : 'Deep Space';
+                const canJump = canJumpFromCurrentSector();
+                const atMainStation = isInDockingRange();
+                const dockButton = atMainStation
+                    ? '<button class="btn" onclick="dockAtStation()">DOCK</button>'
+                    : '';
+                flightStatus.innerHTML = `
+                    <h2>IN-SYSTEM</h2>
+                    <p style="color: var(--text-secondary); margin: 10px 0;">
+                        System ${currentSystem ?? '?'}<br>
+                        Sector ${sectorLabel}<br>
+                        POI ${currentPoi}
+                    </p>
+                    <p style="color: var(--text-secondary); margin: 0 0 10px 0;">
+                        ${canJump ? 'Jump window open. Select a destination to hyperspace.' : 'Clear the station to at least 1 SU before jumping.'}
+                    </p>
+                    <div class="btn-group">
+                        <button class="btn" onclick="switchToNodeMap()">OPEN NODE MAP</button>
+                        <button class="btn" onclick="loadNodeMap(true)">REFRESH MAP</button>
+                        ${dockButton}
+                    </div>
+                    <div class="flight-console" id="flightConsole"></div>
+                `;
+                document.getElementById('btnTravel').disabled = true;
+            } else if (phase === 'docking') {
+                const progress = getTravelProgress(phase);
+                const progressPercent = progress ? clamp(progress.percent, 0, 100) : 50;
+                flightStatus.innerHTML = `
+                    <h2>APPROACHING STATION</h2>
+                    <p style="color: var(--text-secondary); margin: 10px 0;">
+                        System ${currentSystem ?? '?'}
+                    </p>
+                    <div class="progress-bar">
+                        <div class="progress-fill animating" style="width: ${progressPercent}%;">DOCKING ${progressPercent}%</div>
+                    </div>
+                    <div class="btn-group">
+                        <button class="btn" onclick="startMicrogame('docking_approach')">DOCKING MICROGAME</button>
+                        <button class="btn" onclick="autoDock()">AUTO DOCK</button>
+                    </div>
+                    <div class="flight-console" id="flightConsole"></div>
+                `;
+                document.getElementById('btnTravel').disabled = true;
+            } else if (phase === 'microgame_active') {
+                flightStatus.innerHTML = `
+                    <h2>MICROGAME ACTIVE</h2>
+                    <p style="color: var(--text-secondary); margin: 10px 0;">
+                        Complete the current microgame to proceed.
+                    </p>
+                    <div class="flight-console" id="flightConsole"></div>
+                `;
+                document.getElementById('btnTravel').disabled = true;
             } else if (phase === 'departing' || phase === 'in_hyperspace' || phase === 'arriving') {
+                // Legacy phases for backward compatibility
                 const phaseNames = {
                     'departing': 'DEPARTING',
                     'in_hyperspace': 'IN HYPERSPACE',
@@ -1818,7 +2728,7 @@
                 document.getElementById('btnTravel').disabled = true;
             } else {
                 flightStatus.innerHTML = `
-                    <h2>${phase.toUpperCase()}</h2>
+                    <h2>${phase.toUpperCase().replace(/_/g, ' ')}</h2>
                     <div class="flight-console" id="flightConsole"></div>
                 `;
                 document.getElementById('btnTravel').disabled = true;
@@ -1910,6 +2820,8 @@
                 'btnSellEcm',
                 'btnBuyEnergyBomb',
                 'btnSellEnergyBomb',
+                'btnBuyScanner',
+                'btnSellScanner',
                 'repairPoints',
                 'laserMountSelect',
                 'laserTypeSelect',
@@ -1996,6 +2908,7 @@
             document.getElementById('missileCount').textContent = `${garageData.armaments?.missiles || 0} / ${garageData.limits?.missiles || 0}`;
             document.getElementById('ecmStatus').textContent = garageData.armaments?.ecm ? 'Installed' : 'None';
             document.getElementById('energyBombStatus').textContent = garageData.armaments?.energyBomb ? 'Installed' : 'None';
+            document.getElementById('scannerStatus').textContent = garageData.armaments?.scanner ? 'Installed' : 'None';
 
             const laserSelect = document.getElementById('laserTypeSelect');
             const previousLaser = laserSelect.value;
@@ -2031,6 +2944,8 @@
             document.getElementById('btnSellEcm').disabled = !garageData.armaments?.ecm;
             document.getElementById('btnBuyEnergyBomb').disabled = !garageData.available?.energyBomb;
             document.getElementById('btnSellEnergyBomb').disabled = !garageData.armaments?.energyBomb;
+            document.getElementById('btnBuyScanner').disabled = !garageData.available?.scanner;
+            document.getElementById('btnSellScanner').disabled = !garageData.armaments?.scanner;
         }
 
         async function garageAction(payload, statusId) {
@@ -2049,8 +2964,31 @@
                     throw new Error(data?.error || 'Operation failed');
                 }
                 if (status) status.textContent = 'Done.';
-                await refreshData();
-                await updateGarageView();
+                // Update UI optimistically from response data
+                if (currentShipState) {
+                    // Update credits if cost/payout is provided
+                    if (data.cost !== undefined) {
+                        currentShipState.credits = Math.max(0, (currentShipState.credits || 0) - data.cost);
+                    } else if (data.payout !== undefined) {
+                        currentShipState.credits = (currentShipState.credits || 0) + data.payout;
+                    }
+                    // Update armaments if returned
+                    if (data.armaments) {
+                        currentShipState.armaments = data.armaments;
+                    }
+                    // Update fuel if returned
+                    if (data.fuelLy !== undefined) {
+                        currentShipState.fuelLy = data.fuelLy;
+                    }
+                    // Update hull if returned
+                    if (data.hullIntegrity !== undefined) {
+                        currentShipState.hullIntegrity = data.hullIntegrity;
+                    }
+                    updateHeaderDisplay();
+                }
+                // Refresh in background without blocking
+                void refreshData();
+                void updateGarageView();
             } catch (error) {
                 if (status) status.textContent = `Error: ${error.message || error}`;
             }
@@ -2100,6 +3038,14 @@
 
         function sellEnergyBomb() {
             return garageAction({ operation: 'sell', category: 'energyBomb' }, 'armamentStatus');
+        }
+
+        function buyScanner() {
+            return garageAction({ operation: 'buy', category: 'scanner' }, 'armamentStatus');
+        }
+
+        function sellScanner() {
+            return garageAction({ operation: 'sell', category: 'scanner' }, 'armamentStatus');
         }
 
         function setupTradingListeners() {
@@ -2275,6 +3221,63 @@
             }
         }
 
+        async function launchFromStation() {
+            const messageDiv = document.getElementById('flightMessage');
+            if (!currentShipState) return;
+            if (currentShipState.phase !== 'at_station') {
+                showMessage('error', 'Must be docked to launch', messageDiv);
+                return;
+            }
+
+            try {
+                const { response, data } = await shipApi(`/api/ship/${playerShipId}/launch`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({})
+                });
+                if (response.ok && data.success) {
+                    showMessage('success', 'Launch complete', messageDiv);
+                    if (currentShipState) {
+                        currentShipState.phase = data.phase || 'in_system_exploring';
+                    }
+                    await refreshData();
+                    switchToNodeMap();
+                } else {
+                    showMessage('error', data.error || 'Launch failed', messageDiv);
+                }
+            } catch (error) {
+                showMessage('error', `Launch error: ${error.message}`, messageDiv);
+            }
+        }
+
+        async function dockAtStation() {
+            const messageDiv = document.getElementById('flightMessage');
+            if (!currentShipState) return;
+            if (!isInDockingRange()) {
+                showMessage('error', 'Not within docking range', messageDiv);
+                return;
+            }
+
+            try {
+                const { response, data } = await shipApi(`/api/ship/${playerShipId}/dock`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({})
+                });
+                if (response.ok && data.success) {
+                    showMessage('success', 'Docking complete', messageDiv);
+                    if (currentShipState) {
+                        currentShipState.phase = data.phase || 'at_station';
+                    }
+                    await refreshData();
+                } else {
+                    showMessage('error', data.error || 'Docking failed', messageDiv);
+                }
+            } catch (error) {
+                showMessage('error', `Docking error: ${error.message}`, messageDiv);
+            }
+        }
+
         async function initiateTravel() {
             const destination = selectedDestination;
             const messageDiv = document.getElementById('travelMessage');
@@ -2284,8 +3287,8 @@
                 return;
             }
 
-            if (currentShipState?.phase !== 'at_station') {
-                showMessage('error', 'Must be docked to travel', messageDiv);
+            if (!canJumpFromCurrentSector()) {
+                showMessage('error', 'Clear the station to at least 1 SU before jumping', messageDiv);
                 return;
             }
 
@@ -2302,8 +3305,17 @@
 
                 if (response.ok && data.success) {
                     showMessage('success', `Travel initiated to System ${destination} (${data.distance} LY)`, messageDiv);
-                    await refreshData();
+                    // Update phase from server response (new encounter-based system)
+                    if (currentShipState) {
+                        currentShipState.phase = data.phase || 'inter_system_jump';
+                        currentShipState.destinationSystem = destination;
+                        currentShipState.hyperspaceStartTime = Date.now();
+                        updateHeaderDisplay();
+                        updateFlightView();
+                    }
                     switchToFlightStatus();
+                    // Refresh in background without blocking
+                    void refreshData();
                 } else {
                     showMessage('error', data.error || 'Travel failed', messageDiv);
                 }
@@ -2351,7 +3363,8 @@
                         updateCargoDisplay();
                         updateTradeMeta();
                     }
-                    await refreshData();
+                    // Refresh in background without blocking
+                    void refreshData();
                 } else {
                     setTradeStatus('buyStatus', data.error || 'Buy failed.', 'error');
                     showMessage('error', data.error || 'Buy failed', messageDiv);
@@ -2415,7 +3428,8 @@
                         updateCargoDisplay();
                         updateTradeMeta();
                     }
-                    await refreshData();
+                    // Refresh in background without blocking
+                    void refreshData();
                 } else {
                     setTradeStatus('sellStatus', data.error || 'Sell failed.', 'error');
                     showMessage('error', data.error || 'Sell failed', messageDiv);
@@ -2434,8 +3448,16 @@
             const message = document.createElement('div');
             message.className = `message message-${type}`;
             message.textContent = text;
-            container.innerHTML = '';
-            container.appendChild(message);
+            const target = container === document.body
+                ? (document.getElementById('globalMessageContainer') || (() => {
+                    const wrapper = document.createElement('div');
+                    wrapper.id = 'globalMessageContainer';
+                    document.body.appendChild(wrapper);
+                    return wrapper;
+                })())
+                : container;
+            target.querySelectorAll('.message').forEach((node) => node.remove());
+            target.appendChild(message);
             setTimeout(() => message.remove(), 5000);
         }
 
@@ -2444,6 +3466,893 @@
             document.getElementById('credits').textContent = Math.floor(currentShipState.credits || 0).toLocaleString();
             document.getElementById('currentSystem').textContent = currentShipState.currentSystem !== null ? currentShipState.currentSystem : '-';
             document.getElementById('phase').textContent = currentShipState.phase || '-';
+            
+            // Update skill display if element exists
+            const skillElement = document.getElementById('skillLevel');
+            if (skillElement && currentShipState.combatSkill !== undefined) {
+                skillElement.textContent = `Skill: ${Math.floor(currentShipState.combatSkill || 0)}`;
+            }
+        }
+
+        // Encounter System UI Functions
+        async function checkForEncounter() {
+            if (!currentShipState) return;
+            try {
+                const { response, data } = await shipApi(`/api/ship/${playerShipId}/encounter`);
+                if (response.ok && data.encounter) {
+                    showEncounterCard(data.encounter);
+                }
+            } catch (error) {
+                // Ignore errors
+            }
+        }
+
+        function showEncounterCard(encounter) {
+            // Create or update encounter card modal
+            let modal = document.getElementById('encounterModal');
+            if (!modal) {
+                modal = document.createElement('div');
+                modal.id = 'encounterModal';
+                modal.className = 'encounter-modal';
+                modal.innerHTML = `
+                    <div class="encounter-card">
+                        <h2 id="encounterTitle"></h2>
+                        <p id="encounterDescription"></p>
+                        <p id="encounterSituation"></p>
+                        <div id="encounterChoices"></div>
+                        <button onclick="closeEncounterCard()">Close</button>
+                    </div>
+                `;
+                document.body.appendChild(modal);
+            }
+            
+            document.getElementById('encounterTitle').textContent = encounter.title || 'Encounter';
+            document.getElementById('encounterDescription').textContent = encounter.description || '';
+            document.getElementById('encounterSituation').textContent = encounter.situation || '';
+            
+            const choicesDiv = document.getElementById('encounterChoices');
+            choicesDiv.innerHTML = '';
+            encounter.choices.forEach((choice, index) => {
+                const button = document.createElement('button');
+                button.textContent = choice.text;
+                button.onclick = () => submitEncounterChoice(index);
+                choicesDiv.appendChild(button);
+            });
+            
+            modal.style.display = 'block';
+        }
+
+        async function submitEncounterChoice(choiceIndex) {
+            try {
+                const { response, data } = await shipApi(`/api/ship/${playerShipId}/encounter/choice`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ choiceIndex })
+                });
+                if (response.ok) {
+                    closeEncounterCard();
+                    await refreshData();
+                    if (data.outcome) {
+                        showMessage('info', data.outcome.text, document.body);
+                    }
+                }
+            } catch (error) {
+                showMessage('error', `Encounter error: ${error.message}`, document.body);
+            }
+        }
+
+        function closeEncounterCard() {
+            const modal = document.getElementById('encounterModal');
+            if (modal) modal.style.display = 'none';
+        }
+
+        // Node Map UI Functions
+        const SECTOR_PAGE_SIZE = 20;
+        const SECTOR_CELL_MIN_SIZE = 12;
+        const SECTOR_CELL_MAX_SIZE = 28;
+        const SECTOR_NODE_PRIORITY = {
+            main_station: 0,
+            launch_point: 1,
+            arrival_point: 2,
+            sun: 3,
+            planet: 4,
+            mining_outpost: 5,
+            shipyard: 6,
+            research_station: 7,
+            ice_belt: 8,
+            gas_giant_refinery: 9,
+            asteroid_field: 10,
+            fuel_depot: 11,
+            derelict: 12,
+            distress_beacon: 13,
+            pirate_den: 14,
+            black_market: 15
+        };
+        const SECTOR_NODE_LABELS = {
+            main_station: 'ST',
+            launch_point: 'LP',
+            arrival_point: 'AR',
+            sun: 'SU',
+            planet: 'PL',
+            mining_outpost: 'MO',
+            shipyard: 'SY',
+            research_station: 'RS',
+            ice_belt: 'IB',
+            gas_giant_refinery: 'GG',
+            asteroid_field: 'AF',
+            fuel_depot: 'FD',
+            derelict: 'DR',
+            distress_beacon: 'DB',
+            pirate_den: 'PD',
+            black_market: 'BM'
+        };
+
+        function sectorKey(q, r) {
+            return `${q},${r}`;
+        }
+
+        function axialDistance(a, b) {
+            const dq = a.q - b.q;
+            const dr = a.r - b.r;
+            return (Math.abs(dq) + Math.abs(dr) + Math.abs(dq + dr)) / 2;
+        }
+
+        function selectSectorNode(nodes) {
+            if (!nodes || nodes.length === 0) return null;
+            return nodes.slice().sort((a, b) => {
+                const aScore = SECTOR_NODE_PRIORITY[a.type] ?? 99;
+                const bScore = SECTOR_NODE_PRIORITY[b.type] ?? 99;
+                return aScore - bScore;
+            })[0] || null;
+        }
+
+        function getCurrentSector() {
+            if (nodeMapData?.currentSector) return nodeMapData.currentSector;
+            if (Number.isFinite(currentShipState?.sectorQ) && Number.isFinite(currentShipState?.sectorR)) {
+                return { q: currentShipState.sectorQ, r: currentShipState.sectorR };
+            }
+            return null;
+        }
+
+        function clampSectorPageOrigin(originQ, originR) {
+            const maxCoord = Number.isFinite(nodeMapData?.sectorMaxCoord) ? nodeMapData.sectorMaxCoord : 100;
+            const minCoord = -maxCoord;
+            const maxOrigin = maxCoord - sectorMapState.pageSize + 1;
+            const clampedQ = Math.max(minCoord, Math.min(originQ, maxOrigin));
+            const clampedR = Math.max(minCoord, Math.min(originR, maxOrigin));
+            return { q: clampedQ, r: clampedR };
+        }
+
+        function setSectorPageOrigin(originQ, originR, markUser = true) {
+            const clamped = clampSectorPageOrigin(originQ, originR);
+            const changed = clamped.q !== sectorMapState.pageOriginQ || clamped.r !== sectorMapState.pageOriginR;
+            sectorMapState.pageOriginQ = clamped.q;
+            sectorMapState.pageOriginR = clamped.r;
+            if (markUser) {
+                sectorMapState.userSetPage = true;
+            }
+            return changed;
+        }
+
+        function centerSectorMapOnCurrent() {
+            const current = getCurrentSector();
+            if (!current) return false;
+            const half = Math.floor(sectorMapState.pageSize / 2);
+            return setSectorPageOrigin(current.q - half, current.r - half, false);
+        }
+
+        function shiftSectorPage(deltaQ, deltaR) {
+            if (!nodeMapData) return;
+            const originQ = sectorMapState.pageOriginQ + deltaQ * sectorMapState.pageSize;
+            const originR = sectorMapState.pageOriginR + deltaR * sectorMapState.pageSize;
+            if (setSectorPageOrigin(originQ, originR, true)) {
+                renderNodeMap();
+                updateNodeMapSidebar();
+            }
+        }
+
+        function centerSectorPage() {
+            if (!nodeMapData) return;
+            const changed = centerSectorMapOnCurrent();
+            if (changed) {
+                sectorMapState.userSetPage = true;
+                renderNodeMap();
+                updateNodeMapSidebar();
+            }
+        }
+
+        function getSectorCellCenter(q, r) {
+            const col = q - sectorMapState.pageOriginQ;
+            const row = r - sectorMapState.pageOriginR;
+            if (col < 0 || row < 0 || col >= sectorMapState.pageSize || row >= sectorMapState.pageSize) {
+                return null;
+            }
+            return {
+                x: sectorMapState.offsetX + col * sectorMapState.cellSize + sectorMapState.cellSize / 2,
+                y: sectorMapState.offsetY + row * sectorMapState.cellSize + sectorMapState.cellSize / 2
+            };
+        }
+
+        function updateSectorPageLabel() {
+            const label = document.getElementById('sectorPageLabel');
+            if (!label) return;
+            const minQ = sectorMapState.pageOriginQ;
+            const minR = sectorMapState.pageOriginR;
+            const maxQ = minQ + sectorMapState.pageSize - 1;
+            const maxR = minR + sectorMapState.pageSize - 1;
+            label.textContent = `${minQ}..${maxQ} / ${minR}..${maxR}`;
+        }
+
+        function getSectorFromCanvasPoint(clientX, clientY) {
+            const canvas = document.getElementById('nodeMapSurface');
+            if (!canvas) return null;
+            const rect = canvas.getBoundingClientRect();
+            const x = clientX - rect.left - sectorMapState.offsetX;
+            const y = clientY - rect.top - sectorMapState.offsetY;
+            const cellSize = sectorMapState.cellSize;
+            if (cellSize <= 0) return null;
+            const col = Math.floor(x / cellSize);
+            const row = Math.floor(y / cellSize);
+            if (col < 0 || row < 0 || col >= sectorMapState.pageSize || row >= sectorMapState.pageSize) {
+                return null;
+            }
+            const q = sectorMapState.pageOriginQ + col;
+            const r = sectorMapState.pageOriginR + row;
+            const maxCoord = Number.isFinite(nodeMapData?.sectorMaxCoord) ? nodeMapData.sectorMaxCoord : 100;
+            if (Math.abs(q) > maxCoord || Math.abs(r) > maxCoord) {
+                return null;
+            }
+            return { q, r };
+        }
+
+        function setupSectorMapControls() {
+            if (sectorMapInteractionsBound) return;
+            const canvas = document.getElementById('nodeMapSurface');
+            const mapContainer = document.getElementById('nodeMapCanvas');
+            const tooltip = document.getElementById('nodeMapTooltip');
+            if (!canvas || !mapContainer || !tooltip) return;
+            sectorMapInteractionsBound = true;
+
+            if (MAP_HOVER_ENABLED) {
+                canvas.addEventListener('mousemove', (e) => {
+                    const sector = getSectorFromCanvasPoint(e.clientX, e.clientY);
+                    if (!sector) {
+                        tooltip.style.display = 'none';
+                        return;
+                    }
+                    const sectorNodes = getSectorNodes(sector.q, sector.r);
+                    const primaryNode = selectSectorNode(sectorNodes);
+                    const discovered = nodeMapData?.discoveredSectors || new Set();
+                    const isKnown = discovered.has(sectorKey(sector.q, sector.r));
+                    const label = primaryNode
+                        ? `${primaryNode.name || 'Unknown'} (${primaryNode.type})`
+                        : isKnown ? 'Empty space' : 'Unknown sector';
+                    tooltip.style.display = 'block';
+                    tooltip.textContent = `Sector ${sector.q}, ${sector.r}\n${label}`;
+                    positionFlightTooltip(e, tooltip, mapContainer);
+                });
+
+                canvas.addEventListener('mouseleave', () => {
+                    tooltip.style.display = 'none';
+                });
+            } else {
+                tooltip.style.display = 'none';
+            }
+
+            canvas.addEventListener('click', (e) => {
+                const sector = getSectorFromCanvasPoint(e.clientX, e.clientY);
+                if (!sector) return;
+                const discovered = nodeMapData?.discoveredSectors || new Set();
+                const key = sectorKey(sector.q, sector.r);
+                const isKnown = discovered.has(key);
+                const current = getCurrentSector();
+                const isAdjacent = current ? axialDistance(current, sector) === 1 : false;
+                const isSelectable = isKnown || isAdjacent;
+                if (!isSelectable) {
+                    showMessage('error', 'Unknown sectors must be explored step by step.', document.getElementById('nodeMapMessage'));
+                    return;
+                }
+                setSelectedSector(sector.q, sector.r);
+            });
+
+            canvas.addEventListener('touchstart', (e) => {
+                const touch = e.touches[0];
+                if (!touch) return;
+                const sector = getSectorFromCanvasPoint(touch.clientX, touch.clientY);
+                if (!sector) return;
+                const discovered = nodeMapData?.discoveredSectors || new Set();
+                const key = sectorKey(sector.q, sector.r);
+                const isKnown = discovered.has(key);
+                const current = getCurrentSector();
+                const isAdjacent = current ? axialDistance(current, sector) === 1 : false;
+                const isSelectable = isKnown || isAdjacent;
+                if (!isSelectable) {
+                    showMessage('error', 'Unknown sectors must be explored step by step.', document.getElementById('nodeMapMessage'));
+                    return;
+                }
+                setSelectedSector(sector.q, sector.r);
+            }, { passive: true });
+        }
+
+        async function loadNodeMap(force = false) {
+            if (!currentShipState || currentShipState.currentSystem === null) return;
+            const now = Date.now();
+            if (!force && nodeMapData && now - lastNodeMapFetch < NODE_MAP_REFRESH_MS) {
+                return;
+            }
+            try {
+                const { response, data } = await shipApi(`/api/ship/${playerShipId}/node-map`);
+                if (response.ok && data.nodeMap) {
+                    lastNodeMapFetch = now;
+                    const rawNodes = data.nodeMap.nodes || {};
+                    const normalizedNodes = rawNodes instanceof Map ? Object.fromEntries(rawNodes) : rawNodes;
+                    nodeMapData = {
+                        ...data.nodeMap,
+                        nodes: normalizedNodes,
+                        discoveredNodes: new Set(Array.isArray(data.discoveredNodes) ? data.discoveredNodes : []),
+                        discoveredSectors: new Set(Array.isArray(data.discoveredSectors) ? data.discoveredSectors : []),
+                        currentNode: data.currentNode || currentShipState.currentNode,
+                        currentSector: data.currentSector || getCurrentSector(),
+                        sectorSize: data.sectorSize,
+                        sectorMaxCoord: data.sectorMaxCoord,
+                        signals: Array.isArray(data.signals) ? data.signals : []
+                    };
+                    sectorMapState.pageSize = SECTOR_PAGE_SIZE;
+                    if (nodeMapData.systemId !== lastNodeMapSystemId) {
+                        lastNodeMapSystemId = nodeMapData.systemId;
+                        selectedSector = null;
+                        selectedNodeId = null;
+                        sectorMapState.pageOriginQ = 0;
+                        sectorMapState.pageOriginR = 0;
+                        sectorMapState.userSetPage = false;
+                    }
+                    if (!sectorMapState.userSetPage) {
+                        centerSectorMapOnCurrent();
+                    }
+                    setupSectorMapControls();
+                    renderNodeMap();
+                    updateNodeMapSidebar();
+                }
+            } catch (error) {
+                // Ignore errors
+            }
+        }
+
+        function renderNodeMap() {
+            const canvas = document.getElementById('nodeMapSurface');
+            const mapContainer = document.getElementById('nodeMapCanvas');
+            if (!canvas || !nodeMapData || !mapContainer) return;
+
+            const currentSector = getCurrentSector();
+            if (!currentSector) {
+                return;
+            }
+
+            const ctx = canvas.getContext('2d');
+            if (!ctx) return;
+            const width = canvas.clientWidth || 520;
+            const height = canvas.clientHeight || 280;
+            if (canvas.width !== width) canvas.width = width;
+            if (canvas.height !== height) canvas.height = height;
+
+            const pageSize = sectorMapState.pageSize;
+            const cellSize = Math.max(
+                SECTOR_CELL_MIN_SIZE,
+                Math.min(SECTOR_CELL_MAX_SIZE, Math.floor(Math.min(width, height) / pageSize))
+            );
+            const gridSize = cellSize * pageSize;
+            const offsetX = Math.floor((width - gridSize) / 2);
+            const offsetY = Math.floor((height - gridSize) / 2);
+            sectorMapState.cellSize = cellSize;
+            sectorMapState.offsetX = offsetX;
+            sectorMapState.offsetY = offsetY;
+
+            ctx.clearRect(0, 0, width, height);
+
+            const maxCoord = Number.isFinite(nodeMapData.sectorMaxCoord) ? nodeMapData.sectorMaxCoord : 100;
+            const nodes = Object.values(nodeMapData.nodes || {});
+            const discoveredNodes = nodeMapData.discoveredNodes || new Set();
+            const discoveredSectors = nodeMapData.discoveredSectors || new Set();
+
+            const colors = LOW_REFRESH_MODE ? {
+                known: '#f7f7f7',
+                unknown: '#c0c0c0',
+                out: '#8c8c8c',
+                border: '#6b6b6b',
+                current: '#000000',
+                selected: '#000000',
+                adjacent: '#4a4a4a'
+            } : {
+                known: 'rgba(59, 130, 246, 0.18)',
+                unknown: 'rgba(15, 23, 42, 0.6)',
+                out: 'rgba(15, 23, 42, 0.35)',
+                border: 'rgba(148, 163, 184, 0.35)',
+                current: '#a3ffb3',
+                selected: '#f59e0b',
+                adjacent: 'rgba(148, 163, 184, 0.7)'
+            };
+
+            for (let row = 0; row < pageSize; row += 1) {
+                for (let col = 0; col < pageSize; col += 1) {
+                    const q = sectorMapState.pageOriginQ + col;
+                    const r = sectorMapState.pageOriginR + row;
+                    const inBounds = Math.abs(q) <= maxCoord && Math.abs(r) <= maxCoord;
+                    const x = offsetX + col * cellSize;
+                    const y = offsetY + row * cellSize;
+                    if (!inBounds) {
+                        ctx.fillStyle = colors.out;
+                        ctx.fillRect(x, y, cellSize, cellSize);
+                        ctx.strokeStyle = colors.border;
+                        ctx.lineWidth = 1;
+                        ctx.strokeRect(x, y, cellSize, cellSize);
+                        continue;
+                    }
+                    const key = sectorKey(q, r);
+                    const isKnown = discoveredSectors.has(key);
+                    const isCurrent = currentSector.q === q && currentSector.r === r;
+                    const isSelected = selectedSector && selectedSector.q === q && selectedSector.r === r;
+                    const distance = axialDistance(currentSector, { q, r });
+                    const isAdjacent = distance === 1 && !isKnown;
+
+                    ctx.fillStyle = isKnown ? colors.known : colors.unknown;
+                    ctx.fillRect(x, y, cellSize, cellSize);
+                    ctx.strokeStyle = colors.border;
+                    ctx.lineWidth = 1;
+                    ctx.strokeRect(x, y, cellSize, cellSize);
+
+                    if (isAdjacent) {
+                        ctx.strokeStyle = colors.adjacent;
+                        ctx.lineWidth = 2;
+                        ctx.strokeRect(x + 1, y + 1, cellSize - 2, cellSize - 2);
+                    }
+                    if (isSelected) {
+                        ctx.strokeStyle = colors.selected;
+                        ctx.lineWidth = 2;
+                        ctx.strokeRect(x + 1, y + 1, cellSize - 2, cellSize - 2);
+                    }
+                    if (isCurrent) {
+                        ctx.strokeStyle = colors.current;
+                        ctx.lineWidth = 2;
+                        ctx.strokeRect(x + 1, y + 1, cellSize - 2, cellSize - 2);
+                    }
+                }
+            }
+
+            const laneColors = LOW_REFRESH_MODE ? {
+                fast: '#444444',
+                safe: '#555555',
+                stealth: '#666666',
+                expensive: '#777777',
+                hazardous: '#222222'
+            } : {
+                fast: '#3b82f6',
+                safe: '#10b981',
+                stealth: '#8b5cf6',
+                expensive: '#f59e0b',
+                hazardous: '#ef4444'
+            };
+            const currentNodeId = nodeMapData.currentNode;
+            const knownNodeIds = new Set(nodes.filter(node => node.discovered || discoveredNodes.has(node.id)).map(node => node.id));
+            const lanesToRender = (nodeMapData.lanes || []).filter(
+                lane => lane.from === currentNodeId && knownNodeIds.has(lane.to)
+            );
+            lanesToRender.forEach(lane => {
+                const fromNode = nodeMapData.nodes[lane.from];
+                const toNode = nodeMapData.nodes[lane.to];
+                if (!fromNode || !toNode) return;
+                const from = getSectorCellCenter(fromNode.sectorQ, fromNode.sectorR);
+                const to = getSectorCellCenter(toNode.sectorQ, toNode.sectorR);
+                if (!from || !to) return;
+                ctx.strokeStyle = laneColors[lane.type] || 'rgba(255,255,255,0.2)';
+                ctx.lineWidth = 2;
+                ctx.globalAlpha = LOW_REFRESH_MODE ? 1 : 0.6;
+                ctx.beginPath();
+                ctx.moveTo(from.x, from.y);
+                ctx.lineTo(to.x, to.y);
+                ctx.stroke();
+                ctx.globalAlpha = 1;
+            });
+
+            const sectorNodes = new Map();
+            nodes.forEach(node => {
+                const isKnown = node.discovered || discoveredNodes.has(node.id);
+                if (!isKnown) return;
+                if (!Number.isFinite(node.sectorQ) || !Number.isFinite(node.sectorR)) return;
+                const key = sectorKey(node.sectorQ, node.sectorR);
+                if (!sectorNodes.has(key)) {
+                    sectorNodes.set(key, []);
+                }
+                sectorNodes.get(key).push(node);
+            });
+
+            const fontSize = Math.max(9, Math.floor(cellSize * 0.45));
+            ctx.font = `${fontSize}px sans-serif`;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+
+            sectorNodes.forEach((nodesHere) => {
+                const primary = selectSectorNode(nodesHere);
+                if (!primary) return;
+                const label = SECTOR_NODE_LABELS[primary.type] || 'POI';
+                const center = getSectorCellCenter(primary.sectorQ, primary.sectorR);
+                if (!center) return;
+                ctx.fillStyle = LOW_REFRESH_MODE
+                    ? (primary.id === currentNodeId ? '#000000' : '#111111')
+                    : (primary.id === currentNodeId ? '#a3ffb3' : '#46d9ff');
+                ctx.fillText(label, center.x, center.y);
+            });
+
+            updateSectorPageLabel();
+        }
+
+        function getSectorNodes(q, r) {
+            if (!nodeMapData) return [];
+            const discovered = nodeMapData.discoveredNodes || new Set();
+            return Object.values(nodeMapData.nodes || {}).filter(node => {
+                if (!Number.isFinite(node.sectorQ) || !Number.isFinite(node.sectorR)) return false;
+                if (node.sectorQ !== q || node.sectorR !== r) return false;
+                return node.discovered || discovered.has(node.id);
+            });
+        }
+
+        function canTravelToSector(target) {
+            if (!nodeMapData || !target) return false;
+            if (currentShipState?.phase !== 'in_system_exploring') return false;
+            const current = getCurrentSector();
+            if (!current) return false;
+            const discovered = nodeMapData.discoveredSectors || new Set();
+            const key = sectorKey(target.q, target.r);
+            if (discovered.has(key)) return true;
+            return axialDistance(current, target) === 1;
+        }
+
+        function setSelectedSector(q, r, nodeId = null) {
+            selectedSector = { q, r };
+            if (nodeId) {
+                selectedNodeId = nodeId;
+            } else {
+                const nodesHere = getSectorNodes(q, r);
+                const primary = selectSectorNode(nodesHere);
+                selectedNodeId = primary ? primary.id : null;
+            }
+            updateNodeMapSidebar();
+            renderNodeMap();
+        }
+
+        async function performSensorSweep() {
+            if (!playerShipId) return;
+            try {
+                const { response, data } = await shipApi(`/api/ship/${playerShipId}/scan`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+                if (response.ok) {
+                    const discovered = Array.isArray(data.discovered) ? data.discovered.length : 0;
+                    await refreshData();
+                    const message = discovered > 0
+                        ? `Sensor sweep discovered ${discovered} anomaly${discovered === 1 ? '' : 'ies'}.`
+                        : 'Sensor sweep found nothing nearby.';
+                    showMessage('info', message, document.body);
+                } else {
+                    showMessage('error', data.error || 'Sensor sweep failed.', document.body);
+                }
+            } catch (error) {
+                showMessage('error', `Sensor sweep failed: ${error.message}`, document.body);
+            }
+        }
+
+        async function monitorRadioSignals() {
+            if (!playerShipId) return;
+            try {
+                const { response, data } = await shipApi(`/api/ship/${playerShipId}/radio`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+                if (response.ok) {
+                    const discovered = Array.isArray(data.discovered) ? data.discovered.length : 0;
+                    await refreshData();
+                    const message = discovered > 0
+                        ? `Radio fix acquired: ${discovered} signal${discovered === 1 ? '' : 's'} localized.`
+                        : 'Signals are faint. Try moving closer.';
+                    showMessage('info', message, document.body);
+                } else {
+                    showMessage('error', data.error || 'Radio monitoring failed.', document.body);
+                }
+            } catch (error) {
+                showMessage('error', `Radio monitoring failed: ${error.message}`, document.body);
+            }
+        }
+
+        function updateNodeMapSidebar() {
+            const currentSectorLabel = document.getElementById('currentSectorLabel');
+            const currentNodeLabel = document.getElementById('currentNodeLabel');
+            const selectedNodeLabel = document.getElementById('selectedNodeLabel');
+            const phaseLabel = document.getElementById('nodeMapPhaseLabel');
+            const signalsPanel = document.getElementById('nodeMapSignals');
+            const actionPanel = document.getElementById('nodeActionPanel');
+            if (!currentShipState || !nodeMapData) return;
+
+            const currentSector = getCurrentSector();
+            const currentNodeId = nodeMapData.currentNode || currentShipState.currentNode || '';
+            const currentNode = currentNodeId ? nodeMapData.nodes[currentNodeId] : null;
+            const selectedNode = selectedNodeId ? nodeMapData.nodes[selectedNodeId] : null;
+
+            if (currentSectorLabel) {
+                currentSectorLabel.textContent = currentSector ? `${currentSector.q}, ${currentSector.r}` : '-';
+            }
+            updateSectorPageLabel();
+            if (currentNodeLabel) {
+                currentNodeLabel.textContent = currentNode?.name || (currentNodeId || 'Deep Space');
+            }
+            if (selectedNodeLabel) {
+                if (selectedSector) {
+                    const label = selectedNode?.name
+                        ? `${selectedNode.name} (${selectedSector.q}, ${selectedSector.r})`
+                        : `Sector ${selectedSector.q}, ${selectedSector.r}`;
+                    selectedNodeLabel.textContent = label;
+                } else {
+                    selectedNodeLabel.textContent = 'None';
+                }
+            }
+            if (phaseLabel) phaseLabel.textContent = currentShipState.phase || '-';
+
+            if (signalsPanel) {
+                const signals = Array.isArray(nodeMapData.signals) ? nodeMapData.signals : [];
+                if (signals.length === 0) {
+                    signalsPanel.innerHTML = '<div style="color: var(--text-secondary);">Signals: none detected.</div>';
+                } else {
+                    const sortedSignals = signals.slice().sort((a, b) => (b.strength || 0) - (a.strength || 0));
+                    const items = sortedSignals.map(signal => {
+                        const label = signal.kind === 'distress' ? 'Distress' : 'Signal';
+                        return `<div class="node-map-signal"><span class="node-map-signal-kind">${label}</span><span class="node-map-signal-strength">${signal.strength}%</span></div>`;
+                    }).join('');
+                    signalsPanel.innerHTML = `<div>Signals</div><div class="node-map-signal-list">${items}</div>`;
+                }
+            }
+
+            const travelButton = document.getElementById('btnNodeTravel');
+            if (travelButton) {
+                const canTravel = Boolean(selectedSector && canTravelToSector(selectedSector));
+                travelButton.disabled = !canTravel;
+            }
+
+            if (!actionPanel) return;
+            actionPanel.innerHTML = '';
+
+            if (currentShipState.phase !== 'in_system_exploring') {
+                actionPanel.innerHTML = '<div style="color: var(--text-secondary);">Launch to access in-system actions.</div>';
+                return;
+            }
+
+            const actions = [];
+            const hasScanner = Boolean(currentShipState.armaments?.scanner);
+            if (hasScanner) {
+                actions.push({ label: 'Monitor Radio', action: () => monitorRadioSignals() });
+                actions.push({ label: 'Sensor Sweep', action: () => performSensorSweep() });
+            }
+            if (currentNode?.type === 'main_station') {
+                actions.push({ label: 'Dock at Station', action: () => dockAtStation() });
+            }
+            if (['sun', 'ice_belt', 'gas_giant_refinery', 'fuel_depot'].includes(currentNode?.type)) {
+                actions.push({ label: 'Fuel Scooping', action: () => startMicrogame('fuel_scooping') });
+            }
+            if (['asteroid_field', 'mining_outpost', 'derelict'].includes(currentNode?.type)) {
+                actions.push({ label: 'Asteroid Mining', action: () => startMicrogame('asteroid_mining') });
+            }
+
+            if (actions.length === 0) {
+                actionPanel.innerHTML = '<div style="color: var(--text-secondary);">No local actions available.</div>';
+            } else {
+                actions.forEach(action => {
+                const button = document.createElement('button');
+                button.className = 'btn';
+                button.textContent = action.label;
+                button.onclick = action.action;
+                actionPanel.appendChild(button);
+                });
+            }
+        }
+
+        async function initiateNodeTravel() {
+            const messageDiv = document.getElementById('nodeMapMessage');
+            if (!currentShipState) return;
+            if (!selectedSector) {
+                showMessage('error', 'Select a sector first', messageDiv);
+                return;
+            }
+            if (!canTravelToSector(selectedSector)) {
+                showMessage('error', 'Unknown sectors must be explored step by step.', messageDiv);
+                return;
+            }
+            if (currentShipState.phase !== 'in_system_exploring') {
+                showMessage('error', 'Launch to enter system space before traveling', messageDiv);
+                return;
+            }
+
+            try {
+                const { response, data } = await shipApi(`/api/ship/${playerShipId}/travel/sector`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ q: selectedSector.q, r: selectedSector.r })
+                });
+                if (response.ok && data.success) {
+                    showMessage('success', `Traveling to sector ${selectedSector.q}, ${selectedSector.r}`, messageDiv);
+                    if (data.encounter) {
+                        currentShipState.activeEncounter = data.encounter;
+                    }
+                    await refreshData();
+                } else {
+                    showMessage('error', data.error || 'Sector travel failed', messageDiv);
+                }
+            } catch (error) {
+                showMessage('error', `Sector travel error: ${error.message}`, messageDiv);
+            }
+        }
+
+        // Microgame UI Functions
+        async function startMicrogame(type) {
+            try {
+                const { response, data } = await shipApi(`/api/ship/${playerShipId}/microgame/start`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ type })
+                });
+                if (!response.ok) {
+                    showMessage('error', data.error || 'Microgame start failed', document.body);
+                    return;
+                }
+                if (data.session) {
+                    showMicrogameInterface(data.session);
+                }
+            } catch (error) {
+                showMessage('error', `Microgame error: ${error.message}`, document.body);
+            }
+        }
+
+        function showMicrogameInterface(session) {
+            activeMicrogameSession = session;
+            let gameView = document.getElementById('microgameView');
+            if (!gameView) {
+                gameView = document.createElement('div');
+                gameView.id = 'microgameView';
+                gameView.className = 'microgame-view';
+                document.body.appendChild(gameView);
+            }
+            let controlsHtml = '';
+            if (session.type === 'fuel_scooping') {
+                controlsHtml = `
+                    <label>Heat Target <span id="microgameHeatValue">50</span></label>
+                    <input class="microgame-slider" type="range" min="0" max="100" value="50" id="microgameHeat">
+                `;
+            } else if (session.type === 'asteroid_mining') {
+                controlsHtml = `
+                    <label>Laser X <span id="microgameLaserXValue">50</span></label>
+                    <input class="microgame-slider" type="range" min="0" max="100" value="50" id="microgameLaserX">
+                    <label>Laser Y <span id="microgameLaserYValue">50</span></label>
+                    <input class="microgame-slider" type="range" min="0" max="100" value="50" id="microgameLaserY">
+                `;
+            } else if (session.type === 'docking_approach') {
+                controlsHtml = `
+                    <label>Alignment X <span id="microgameDockXValue">50</span></label>
+                    <input class="microgame-slider" type="range" min="0" max="100" value="50" id="microgameDockX">
+                    <label>Alignment Y <span id="microgameDockYValue">50</span></label>
+                    <input class="microgame-slider" type="range" min="0" max="100" value="50" id="microgameDockY">
+                `;
+            }
+
+            gameView.innerHTML = `
+                <div class="microgame-card">
+                    <h2>${session.type.replace('_', ' ').toUpperCase()}</h2>
+                    <p style="color: var(--text-secondary); font-size: 12px;">
+                        Calibrate the controls to maximize performance, or use auto mode for a safe result.
+                    </p>
+                    <div class="microgame-controls">${controlsHtml}</div>
+                    <div style="font-size: 12px; color: var(--text-secondary);">
+                        Performance: <strong id="microgamePerformance">50%</strong>
+                    </div>
+                    <div class="btn-group" style="margin-top: 12px;">
+                        <button class="btn" id="microgameCompleteBtn">COMPLETE</button>
+                        <button class="btn" id="microgameAutoBtn">AUTO MODE</button>
+                    </div>
+                </div>
+            `;
+            gameView.style.display = 'flex';
+
+            const performanceEl = document.getElementById('microgamePerformance');
+            const updatePerformance = () => {
+                const performance = calculateMicrogamePerformance(session.type);
+                performanceEl.textContent = `${Math.round(performance)}%`;
+            };
+
+            const bindSlider = (id, labelId) => {
+                const slider = document.getElementById(id);
+                const label = document.getElementById(labelId);
+                if (!slider || !label) return;
+                slider.addEventListener('input', () => {
+                    label.textContent = slider.value;
+                    updatePerformance();
+                });
+            };
+
+            bindSlider('microgameHeat', 'microgameHeatValue');
+            bindSlider('microgameLaserX', 'microgameLaserXValue');
+            bindSlider('microgameLaserY', 'microgameLaserYValue');
+            bindSlider('microgameDockX', 'microgameDockXValue');
+            bindSlider('microgameDockY', 'microgameDockYValue');
+            updatePerformance();
+
+            document.getElementById('microgameCompleteBtn')?.addEventListener('click', () => {
+                const performance = calculateMicrogamePerformance(session.type);
+                completeMicrogame(false, performance);
+            });
+            document.getElementById('microgameAutoBtn')?.addEventListener('click', () => {
+                completeMicrogame(true);
+            });
+        }
+
+        function calculateMicrogamePerformance(type) {
+            if (type === 'fuel_scooping') {
+                const heat = Number(document.getElementById('microgameHeat')?.value || 50);
+                if (heat < 60) {
+                    return 50 + (heat / 60) * 50;
+                }
+                if (heat >= 60 && heat < 80) {
+                    return 100;
+                }
+                return Math.max(0, 100 - ((heat - 80) / 20) * 50);
+            }
+            if (type === 'asteroid_mining') {
+                const x = Number(document.getElementById('microgameLaserX')?.value || 50) / 100;
+                const y = Number(document.getElementById('microgameLaserY')?.value || 50) / 100;
+                const dx = x - 0.5;
+                const dy = y - 0.5;
+                const distance = Math.sqrt(dx * dx + dy * dy);
+                return Math.max(0, 100 - distance * 200);
+            }
+            if (type === 'docking_approach') {
+                const x = Number(document.getElementById('microgameDockX')?.value || 50) / 100;
+                const y = Number(document.getElementById('microgameDockY')?.value || 50) / 100;
+                const dx = x - 0.5;
+                const dy = y - 0.5;
+                const distance = Math.sqrt(dx * dx + dy * dy);
+                return Math.max(0, (1 - distance) * 100);
+            }
+            return 50;
+        }
+
+        async function completeMicrogame(autoMode = false, performance = null) {
+            try {
+                const { response, data } = await shipApi(`/api/ship/${playerShipId}/microgame/complete`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ autoMode, performance })
+                });
+                if (response.ok) {
+                    const gameView = document.getElementById('microgameView');
+                    if (gameView) gameView.style.display = 'none';
+                    activeMicrogameSession = null;
+                    await refreshData();
+                }
+            } catch (error) {
+                showMessage('error', `Microgame error: ${error.message}`, document.body);
+            }
+        }
+
+        async function autoDock() {
+            try {
+                const { response: startResponse, data: startData } = await shipApi(`/api/ship/${playerShipId}/microgame/start`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ type: 'docking_approach' })
+                });
+                if (!startResponse.ok) {
+                    showMessage('error', startData.error || 'Auto dock failed to start', document.body);
+                    return;
+                }
+                await completeMicrogame(true);
+            } catch (error) {
+                showMessage('error', `Auto dock error: ${error.message}`, document.body);
+            }
         }
 
         function showBanner(type, text) {
@@ -2463,7 +4372,7 @@
 
         function startAutoRefresh() {
             if (refreshInterval) clearInterval(refreshInterval);
-            refreshInterval = setInterval(refreshData, 2000); // Refresh every 2 seconds
+            refreshInterval = setInterval(refreshData, AUTO_REFRESH_MS);
         }
 
         async function saveGame() {
@@ -2568,13 +4477,7 @@
                 return distance <= FLIGHT_RANGE_LY;
             });
 
-            const showRoute = Array.isArray(selectedRequestPath) && selectedRequestPath.length > 0;
-            if (showRoute) {
-                const pathSet = new Set(selectedRequestPath);
-                filteredSystems = systems.filter(sys => pathSet.has(sys.id));
-            }
-
-            if (!showRoute && selectedDestination !== null && selectedDestination !== undefined) {
+            if (selectedDestination !== null && selectedDestination !== undefined) {
                 const stillReachable = filteredSystems.some(sys => sys.id === selectedDestination);
                 if (!stillReachable) {
                     selectedDestination = null;
@@ -2585,8 +4488,7 @@
             }
 
             if (filteredSystems.length === 0) {
-                const emptyLabel = showRoute ? 'No route nodes available' : 'No systems in range';
-                svg.innerHTML = `<text x="50%" y="50%" text-anchor="middle" fill="#3b8c6b" font-size="12">${emptyLabel}</text>`;
+                svg.innerHTML = '<text x="50%" y="50%" text-anchor="middle" fill="#3b8c6b" font-size="12">No systems in range</text>';
                 return;
             }
 
@@ -2618,25 +4520,6 @@
                 const screenY = centerY + (wy - offsetY) * scale;
                 return { x: screenX, y: screenY };
             };
-
-            if (showRoute && selectedRequestPath.length > 1) {
-                const points = selectedRequestPath.map((id) => {
-                    const sys = systems.find(item => item.id === id);
-                    if (!sys) return null;
-                    const pos = worldToScreen(sys.x, sys.y);
-                    return `${pos.x},${pos.y}`;
-                }).filter(Boolean);
-
-                if (points.length > 1) {
-                    const routeLine = document.createElementNS('http://www.w3.org/2000/svg', 'polyline');
-                    routeLine.setAttribute('points', points.join(' '));
-                    routeLine.setAttribute('fill', 'none');
-                    routeLine.setAttribute('stroke', '#2dd4bf');
-                    routeLine.setAttribute('stroke-width', '2');
-                    routeLine.setAttribute('stroke-dasharray', '6 4');
-                    svg.appendChild(routeLine);
-                }
-            }
 
             filteredSystems.forEach((sys) => {
                 const screenPos = worldToScreen(sys.x, sys.y);
@@ -2734,24 +4617,68 @@
             tooltip.style.top = `${top}px`;
         }
 
+        function getMainStationNodeId() {
+            const systemId = currentShipState?.currentSystem;
+            if (systemId === null || systemId === undefined) return null;
+            return `node-${systemId}-main`;
+        }
+        function getMainStationSector() {
+            if (!nodeMapData) return null;
+            const nodes = Object.values(nodeMapData.nodes || {});
+            const station = nodes.find(node => node.type === 'main_station');
+            if (!station || !Number.isFinite(station.sectorQ) || !Number.isFinite(station.sectorR)) return null;
+            return { q: station.sectorQ, r: station.sectorR };
+        }
+
+        function isInDockingRange() {
+            if (currentShipState?.phase !== 'in_system_exploring') return false;
+            const current = getCurrentSector();
+            const station = getMainStationSector();
+            if (current && station) {
+                return axialDistance(current, station) === 0;
+            }
+            const mainNodeId = getMainStationNodeId();
+            return !!mainNodeId && currentShipState?.currentNode === mainNodeId;
+        }
+
+        function canJumpFromCurrentSector() {
+            if (currentShipState?.phase !== 'in_system_exploring') return false;
+            if (!nodeMapData) {
+                void loadNodeMap();
+            }
+            const current = getCurrentSector();
+            const station = getMainStationSector();
+            if (!current || !station) {
+                const mainNodeId = getMainStationNodeId();
+                if (mainNodeId && currentShipState?.currentNode) {
+                    return currentShipState.currentNode !== mainNodeId;
+                }
+                return false;
+            }
+            return axialDistance(current, station) >= 1;
+        }
+
         function setSelectedDestination(systemId) {
             selectedDestination = systemId;
             selectedDestinationDistance = getMapDistance(systemId);
             const launchBtn = document.getElementById('btnTravel');
-            launchBtn.textContent = `LAUNCH TO ${systemId}`;
+            launchBtn.textContent = `JUMP TO ${systemId}`;
             renderFlightMap();
             updateTravelActionState();
         }
 
         function updateTravelActionState() {
             const launchBtn = document.getElementById('btnTravel');
-            const isDocked = currentShipState?.phase === 'at_station';
+            const canJump = canJumpFromCurrentSector();
             const hasDestination = selectedDestination !== null && selectedDestination !== undefined;
             updateSelectedDestinationDisplay();
             if (!hasDestination) {
-                launchBtn.textContent = 'LAUNCH';
+                launchBtn.textContent = 'JUMP';
             }
-            launchBtn.disabled = !isDocked || !hasDestination;
+            launchBtn.disabled = !canJump || !hasDestination;
+            launchBtn.title = canJump
+                ? ''
+                : 'Clear the station to at least 1 SU before jumping';
         }
 
         function updateSelectedDestinationDisplay() {
@@ -2776,6 +4703,346 @@
             const dx = destinationSystem.x - currentSystem.x;
             const dy = destinationSystem.y - currentSystem.y;
             return Math.sqrt(dx * dx + dy * dy);
+        }
+
+        // Galactic map state for zoom/pan
+        let galacticMapState = {
+            zoom: 1,
+            panX: 0,
+            panY: 0,
+            isDragging: false,
+            dragStartX: 0,
+            dragStartY: 0,
+            dragStartPanX: 0,
+            dragStartPanY: 0,
+            isPinching: false,
+            pinchStartDistance: 0,
+            pinchStartZoom: 1
+        };
+        let galacticMapControlsSetup = false;
+        const GALACTIC_MAP_MIN_ZOOM = 0.2;
+        const GALACTIC_MAP_MAX_ZOOM = 3;
+
+        function clampGalacticZoom(value) {
+            return Math.max(GALACTIC_MAP_MIN_ZOOM, Math.min(GALACTIC_MAP_MAX_ZOOM, value));
+        }
+
+        function setGalacticMapZoom(newZoom, clientX, clientY) {
+            const mapContainer = document.getElementById('galacticMap');
+            if (!mapContainer) return;
+            const rect = mapContainer.getBoundingClientRect();
+            const oldZoom = galacticMapState.zoom;
+            const clampedZoom = clampGalacticZoom(newZoom);
+            if (clampedZoom === oldZoom) return;
+
+            const centerX = rect.width / 2;
+            const centerY = rect.height / 2;
+            const localX = Number.isFinite(clientX) ? clientX - rect.left : centerX;
+            const localY = Number.isFinite(clientY) ? clientY - rect.top : centerY;
+            const dx = localX - centerX - galacticMapState.panX;
+            const dy = localY - centerY - galacticMapState.panY;
+            const ratio = clampedZoom / oldZoom;
+
+            galacticMapState.panX = galacticMapState.panX + dx * (1 - ratio);
+            galacticMapState.panY = galacticMapState.panY + dy * (1 - ratio);
+            galacticMapState.zoom = clampedZoom;
+            renderGalacticMap();
+        }
+
+        function getTouchDistance(touchA, touchB) {
+            const dx = touchA.clientX - touchB.clientX;
+            const dy = touchA.clientY - touchB.clientY;
+            return Math.hypot(dx, dy);
+        }
+
+        function getTouchCenter(touchA, touchB) {
+            return {
+                x: (touchA.clientX + touchB.clientX) / 2,
+                y: (touchA.clientY + touchB.clientY) / 2
+            };
+        }
+
+        function renderGalacticMap() {
+            const svg = document.getElementById('galacticMapSvg');
+            const tooltip = document.getElementById('galacticMapTooltip');
+            const mapContainer = document.getElementById('galacticMap');
+            if (!svg || !mapContainer) return;
+
+            // Ensure map data is loaded
+            if (!galaxyMapData) {
+                void ensureGalaxyMapData().then(() => {
+                    if (galaxyMapData) {
+                        renderGalacticMap();
+                    }
+                });
+                svg.innerHTML = '<text x="50%" y="50%" text-anchor="middle" fill="#3b8c6b" font-size="12">Loading map data...</text>';
+                return;
+            }
+
+            const systems = galaxyMapData || [];
+            if (systems.length === 0) {
+                svg.innerHTML = '<text x="50%" y="50%" text-anchor="middle" fill="#3b8c6b" font-size="12">No map data</text>';
+                return;
+            }
+
+            const currentSystemId = currentShipState?.currentSystem;
+            const currentSystem = systems.find(sys => sys.id === currentSystemId);
+            if (!currentSystem && currentSystemId !== null && currentSystemId !== undefined) {
+                svg.innerHTML = '<text x="50%" y="50%" text-anchor="middle" fill="#3b8c6b" font-size="12">Current system unknown</text>';
+                return;
+            }
+
+            svg.innerHTML = '';
+            
+            // Get container dimensions - use offsetWidth/offsetHeight if getBoundingClientRect returns 0
+            const rect = mapContainer.getBoundingClientRect();
+            let width = rect.width;
+            let height = rect.height;
+            if (width === 0 || height === 0) {
+                width = mapContainer.offsetWidth || 600;
+                height = mapContainer.offsetHeight || 500;
+            }
+            
+            // Set SVG viewBox and dimensions
+            svg.setAttribute('width', width);
+            svg.setAttribute('height', height);
+            svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
+
+            // Calculate bounds of all systems
+            let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+            systems.forEach(sys => {
+                minX = Math.min(minX, sys.x);
+                maxX = Math.max(maxX, sys.x);
+                minY = Math.min(minY, sys.y);
+                maxY = Math.max(maxY, sys.y);
+            });
+
+            const padding = 50;
+            const rangeX = maxX - minX || 128;
+            const rangeY = maxY - minY || 128;
+            const baseScaleX = (width - padding * 2) / rangeX;
+            const baseScaleY = (height - padding * 2) / rangeY;
+            const baseScale = Math.min(baseScaleX, baseScaleY);
+            const scale = baseScale * galacticMapState.zoom;
+
+            const centerX = width / 2;
+            const centerY = height / 2;
+            const offsetX = (minX + maxX) / 2;
+            const offsetY = (minY + maxY) / 2;
+
+            const worldToScreen = (wx, wy) => {
+                const screenX = centerX + (wx - offsetX) * scale + galacticMapState.panX;
+                const screenY = centerY + (wy - offsetY) * scale + galacticMapState.panY;
+                return { x: screenX, y: screenY };
+            };
+
+            // Draw route if available
+            if (selectedRequestPath && selectedRequestPath.length > 1) {
+                const points = selectedRequestPath.map((id) => {
+                    const sys = systems.find(item => item.id === id);
+                    if (!sys) return null;
+                    const pos = worldToScreen(sys.x, sys.y);
+                    return `${pos.x},${pos.y}`;
+                }).filter(Boolean);
+
+                if (points.length > 1) {
+                    const routeLine = document.createElementNS('http://www.w3.org/2000/svg', 'polyline');
+                    routeLine.setAttribute('points', points.join(' '));
+                    routeLine.setAttribute('fill', 'none');
+                    routeLine.setAttribute('stroke', '#2dd4bf');
+                    routeLine.setAttribute('stroke-width', '2');
+                    routeLine.setAttribute('stroke-dasharray', '6 4');
+                    svg.appendChild(routeLine);
+                }
+            }
+
+            // Draw all systems
+            systems.forEach((sys) => {
+                const screenPos = worldToScreen(sys.x, sys.y);
+                const x = screenPos.x;
+                const y = screenPos.y;
+                if (x < -20 || x > width + 20 || y < -20 || y > height + 20) return;
+
+                const isCurrent = sys.id === currentSystemId;
+                const isTarget = selectedRequestTarget && sys.id === selectedRequestTarget.systemId;
+                const isInRoute = selectedRequestPath && selectedRequestPath.includes(sys.id);
+                const radius = isCurrent ? 6 : isTarget ? 5 : isInRoute ? 4 : 3;
+                let fill = 'rgba(96, 165, 250, 0.4)';
+                if (isCurrent) fill = '#46d9ff';
+                else if (isTarget) fill = '#a3ffb3';
+                else if (isInRoute) fill = '#2dd4bf';
+
+                const systemCircle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+                systemCircle.setAttribute('cx', x);
+                systemCircle.setAttribute('cy', y);
+                systemCircle.setAttribute('r', radius);
+                systemCircle.setAttribute('fill', fill);
+                systemCircle.setAttribute('stroke', '#0b1016');
+                systemCircle.setAttribute('stroke-width', '1');
+                systemCircle.setAttribute('data-system-id', sys.id);
+                systemCircle.style.cursor = 'pointer';
+                svg.appendChild(systemCircle);
+
+                if (isCurrent || isTarget || (isInRoute && galacticMapState.zoom > 0.5)) {
+                    const label = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+                    label.setAttribute('x', x);
+                    label.setAttribute('y', y - 12);
+                    label.setAttribute('fill', isCurrent ? '#46d9ff' : isTarget ? '#a3ffb3' : '#2dd4bf');
+                    label.setAttribute('font-size', '11');
+                    label.setAttribute('font-weight', '600');
+                    label.setAttribute('text-anchor', 'middle');
+                    label.textContent = `System ${sys.id}`;
+                    svg.appendChild(label);
+                }
+
+                systemCircle.addEventListener('mouseenter', (e) => {
+                    const sysId = parseInt(e.target.getAttribute('data-system-id'), 10);
+                    const system = systems.find(s => s.id === sysId);
+                    if (!system) return;
+                    let tooltipText = `System ${sysId}`;
+                    if (currentSystem) {
+                        const dx = system.x - currentSystem.x;
+                        const dy = system.y - currentSystem.y;
+                        const distance = Math.hypot(dx, dy);
+                        tooltipText += `\nDistance: ${distance.toFixed(1)} LY`;
+                    }
+                    if (system.techLevel !== undefined) {
+                        tooltipText += `\nTech Level: ${system.techLevel}`;
+                    }
+                    if (system.worldType) {
+                        const worldTypeDisplay = system.worldType.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+                        tooltipText += `\nWorld Type: ${worldTypeDisplay}`;
+                    }
+                    tooltip.style.display = 'block';
+                    tooltip.textContent = tooltipText;
+                    positionFlightTooltip(e, tooltip, mapContainer);
+                });
+
+                systemCircle.addEventListener('mousemove', (e) => {
+                    positionFlightTooltip(e, tooltip, mapContainer);
+                });
+
+                systemCircle.addEventListener('mouseleave', () => {
+                    tooltip.style.display = 'none';
+                });
+            });
+
+            // Setup zoom/pan controls (only once)
+            if (!galacticMapControlsSetup) {
+                setupGalacticMapControls();
+                galacticMapControlsSetup = true;
+            }
+        }
+
+        function setupGalacticMapControls() {
+            const mapContainer = document.getElementById('galacticMap');
+
+            // Pan with mouse drag
+            if (mapContainer) {
+                mapContainer.onmousedown = (e) => {
+                    if (e.button === 0) { // Left mouse button
+                        galacticMapState.isDragging = true;
+                        galacticMapState.isPinching = false;
+                        galacticMapState.dragStartX = e.clientX;
+                        galacticMapState.dragStartY = e.clientY;
+                        galacticMapState.dragStartPanX = galacticMapState.panX;
+                        galacticMapState.dragStartPanY = galacticMapState.panY;
+                        mapContainer.style.cursor = 'grabbing';
+                    }
+                };
+
+                mapContainer.onmousemove = (e) => {
+                    if (galacticMapState.isDragging) {
+                        const dx = e.clientX - galacticMapState.dragStartX;
+                        const dy = e.clientY - galacticMapState.dragStartY;
+                        galacticMapState.panX = galacticMapState.dragStartPanX + dx;
+                        galacticMapState.panY = galacticMapState.dragStartPanY + dy;
+                        renderGalacticMap();
+                    }
+                };
+
+                mapContainer.onmouseup = () => {
+                    galacticMapState.isDragging = false;
+                    mapContainer.style.cursor = 'grab';
+                };
+
+                mapContainer.onmouseleave = () => {
+                    galacticMapState.isDragging = false;
+                    mapContainer.style.cursor = 'grab';
+                };
+
+                // Zoom with wheel
+                mapContainer.onwheel = (e) => {
+                    e.preventDefault();
+                    const delta = e.deltaY > 0 ? 0.9 : 1.1;
+                    setGalacticMapZoom(galacticMapState.zoom * delta, e.clientX, e.clientY);
+                };
+
+                // Touch pan + pinch zoom
+                mapContainer.addEventListener('touchstart', (e) => {
+                    if (e.touches.length === 1) {
+                        const touch = e.touches[0];
+                        galacticMapState.isDragging = true;
+                        galacticMapState.isPinching = false;
+                        galacticMapState.dragStartX = touch.clientX;
+                        galacticMapState.dragStartY = touch.clientY;
+                        galacticMapState.dragStartPanX = galacticMapState.panX;
+                        galacticMapState.dragStartPanY = galacticMapState.panY;
+                    } else if (e.touches.length === 2) {
+                        galacticMapState.isDragging = false;
+                        galacticMapState.isPinching = true;
+                        galacticMapState.pinchStartDistance = getTouchDistance(e.touches[0], e.touches[1]);
+                        galacticMapState.pinchStartZoom = galacticMapState.zoom;
+                    }
+                }, { passive: false });
+
+                mapContainer.addEventListener('touchmove', (e) => {
+                    if (e.touches.length === 2 && galacticMapState.isPinching) {
+                        e.preventDefault();
+                        const distance = getTouchDistance(e.touches[0], e.touches[1]);
+                        if (galacticMapState.pinchStartDistance > 0) {
+                            const scale = distance / galacticMapState.pinchStartDistance;
+                            const targetZoom = galacticMapState.pinchStartZoom * scale;
+                            const center = getTouchCenter(e.touches[0], e.touches[1]);
+                            setGalacticMapZoom(targetZoom, center.x, center.y);
+                        }
+                        return;
+                    }
+                    if (e.touches.length === 1 && galacticMapState.isDragging && !galacticMapState.isPinching) {
+                        e.preventDefault();
+                        const touch = e.touches[0];
+                        const dx = touch.clientX - galacticMapState.dragStartX;
+                        const dy = touch.clientY - galacticMapState.dragStartY;
+                        galacticMapState.panX = galacticMapState.dragStartPanX + dx;
+                        galacticMapState.panY = galacticMapState.dragStartPanY + dy;
+                        renderGalacticMap();
+                    }
+                }, { passive: false });
+
+                mapContainer.addEventListener('touchend', (e) => {
+                    if (e.touches.length === 1) {
+                        const touch = e.touches[0];
+                        galacticMapState.isPinching = false;
+                        galacticMapState.isDragging = true;
+                        galacticMapState.dragStartX = touch.clientX;
+                        galacticMapState.dragStartY = touch.clientY;
+                        galacticMapState.dragStartPanX = galacticMapState.panX;
+                        galacticMapState.dragStartPanY = galacticMapState.panY;
+                        return;
+                    }
+                    if (e.touches.length === 0) {
+                        galacticMapState.isDragging = false;
+                        galacticMapState.isPinching = false;
+                        mapContainer.style.cursor = 'grab';
+                    }
+                });
+
+                mapContainer.addEventListener('touchcancel', () => {
+                    galacticMapState.isDragging = false;
+                    galacticMapState.isPinching = false;
+                    mapContainer.style.cursor = 'grab';
+                });
+            }
         }
 
         function getCargoState() {
