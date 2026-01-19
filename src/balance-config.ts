@@ -3,6 +3,8 @@
  * Centralized configuration for economic parameters that can be adjusted dynamically
  */
 
+import type { GoodId } from "./types";
+
 export interface BalanceConfig {
   priceElasticity: number;
   minProfitMargin: number;
@@ -76,4 +78,21 @@ export function getInventoryDampingThreshold(): number {
 
 export function getSigmoidSteepness(): number {
   return balanceConfig.sigmoidSteepness;
+}
+
+/** Per-good production multipliers. luxuries 0.95 = −5%. */
+export function getGoodProductionMultiplier(goodId: GoodId): number {
+  switch (goodId) {
+    case "food": return 1.38;
+    case "textiles": return 1.21;
+    case "metals": return 1.12;
+    case "machinery": return 1.15;
+    case "electronics": return 1.265;
+    case "computers": return 1.15;
+    case "narcotics": return 1.15;
+    case "luxuries": return 0.95;
+    case "medicines": return 1.15;
+    case "weapons": return 1.15;
+    default: return 1.0;
+  }
 }

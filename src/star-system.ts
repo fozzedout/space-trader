@@ -25,7 +25,8 @@ import { getGoodDefinition, getAllGoodIds, isSpecializedGood } from "./goods";
 import { getPriceMultiplier } from "./economy-roles";
 import { 
   getMaxPriceMultiplier, 
-  getMinPriceMultiplier
+  getMinPriceMultiplier,
+  getGoodProductionMultiplier,
 } from "./balance-config";
 import type { DurableObjectNamespace, DurableObjectState, DurableObjectStorage } from "./durable-object-types";
 
@@ -277,8 +278,15 @@ export class StarSystem {
       // Consumption multiplier: 14 (decreased from 15) to reduce deficit
       // Resort consumption: 14 * 2 = 28
       // Net effect: average production ~16-20, average consumption ~14-18 (slight surplus)
+      // Keep food, textiles, metals, luxuries, electronics, computers, medicines, weapons slightly surplus; luxuries −5%.
+      const goodProductionMultiplier = getGoodProductionMultiplier(goodId);
       const baseProduction = canProduce
-        ? (this.systemState.population * (this.systemState.techLevel + 1) * 16 * specializationBonus) / 1000
+        ? (this.systemState.population
+            * (this.systemState.techLevel + 1)
+            * 16
+            * specializationBonus
+            * goodProductionMultiplier
+          ) / 1000
         : 0;
       const baseConsumption = canConsume
         ? (this.systemState.population * (this.systemState.techLevel + 1) * 14 * resortConsumptionMultiplier) / 1000
@@ -789,13 +797,13 @@ export class StarSystem {
 
   /**
    * Write trade logs to file when zero inventory is detected
-   * Only works in Node.js environment (not in Cloudflare Workers)
+   * Only works in Node.js environment (skip in non-Node runtimes)
    */
   private writeLogsToFile(): void {
     try {
       // Check if we're in a Node.js environment
       if (typeof process === "undefined" || !process.cwd) {
-        // Cloudflare Workers environment - skip file writing
+        // Non-Node runtime - skip file writing
         return;
       }
       

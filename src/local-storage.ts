@@ -58,6 +58,16 @@ interface PendingArrivalRow {
   price_info_json: string;
 }
 
+/**
+ * ShipRow: SQLite row for ships. Maps to ShipState.
+ * Used by load: id, name, current_system, destination_system, phase, credits, is_npc, seed;
+ *   travelStartTime from departure_start_time or hyperspace_start_time. cargo/purchasePrices
+ *   from ship_cargo and ship_purchase_prices.
+ * Legacy (schema/INSERT only, not read into ShipState): arrival_start_time, arrival_complete_time,
+ *   rest_start_time, rest_end_time, sleep_start_time, fuel_ly, fuel_capacity_ly, cargo_json,
+ *   purchase_prices_json, armaments_json, hull_*, route_plan_*, position_*, arrival_start_*,
+ *   origin_system, origin_price_info, chosen_destination_system_id, expected_margin_at_choice_time.
+ */
 interface ShipRow {
   id: string;
   name: string;
@@ -258,13 +268,13 @@ function getDatabase(): Database.Database {
     CREATE INDEX IF NOT EXISTS idx_players_ship_id ON players(ship_id);
 
     -- Generic key-value storage for any other keys
-    CREATE TABLE IF NOT EXISTS durable_object_storage (
+    CREATE TABLE IF NOT EXISTS kv_storage (
       object_id TEXT NOT NULL,
       key TEXT NOT NULL,
       value TEXT NOT NULL,
       PRIMARY KEY (object_id, key)
     );
-    CREATE INDEX IF NOT EXISTS idx_object_id ON durable_object_storage(object_id);
+    CREATE INDEX IF NOT EXISTS idx_kv_storage_object_id ON kv_storage(object_id);
 
     -- Indexes for performance
     CREATE INDEX IF NOT EXISTS idx_markets_system ON markets(system_id);
@@ -370,7 +380,7 @@ export function upsertPlayer(name: string, shipId: string, now: number): PlayerR
 }
 
 /**
- * Storage adapter that provides a Durable Object-style storage API
+ * Storage adapter that provides an object storage API
  * but uses proper SQL tables under the hood
  */
 export class LocalStorage {
@@ -406,7 +416,7 @@ export class LocalStorage {
     
     // For other keys, use a generic key-value table (for any future needs)
     const stmt = this.db.prepare(`
-      SELECT value FROM durable_object_storage 
+      SELECT value FROM kv_storage 
       WHERE object_id = ? AND key = ?
     `);
     const row = stmt.get(this.objectId, key) as { value: string } | undefined;
@@ -439,7 +449,7 @@ export class LocalStorage {
     // For other keys, use generic key-value table
     const jsonValue = JSON.stringify(value);
     const stmt = this.db.prepare(`
-      INSERT INTO durable_object_storage (object_id, key, value)
+      INSERT INTO kv_storage (object_id, key, value)
       VALUES (?, ?, ?)
       ON CONFLICT(object_id, key) DO UPDATE SET value = excluded.value
     `);
@@ -465,7 +475,7 @@ export class LocalStorage {
     }
     
     const stmt = this.db.prepare(`
-      DELETE FROM durable_object_storage 
+      DELETE FROM kv_storage 
       WHERE object_id = ? AND key = ?
     `);
     const result = stmt.run(this.objectId, key);
@@ -486,7 +496,7 @@ export class LocalStorage {
     // Also check generic storage
     const prefix = options?.prefix || "";
     const stmt = this.db.prepare(`
-      SELECT key, value FROM durable_object_storage 
+      SELECT key, value FROM kv_storage 
       WHERE object_id = ? AND key LIKE ?
       ORDER BY key
     `);
@@ -517,7 +527,7 @@ export class LocalStorage {
       this.db.prepare("DELETE FROM pending_arrivals WHERE ship_id = ?").run(this.objectId);
     }
     
-    this.db.prepare("DELETE FROM durable_object_storage WHERE object_id = ?").run(this.objectId);
+    this.db.prepare("DELETE FROM kv_storage WHERE object_id = ?").run(this.objectId);
   }
 
   // System-specific load/save methods
@@ -933,8 +943,8 @@ export class LocalStorage {
           shipData.credits,
           shipData.isNPC ? 1 : 0,
           shipData.seed,
-          null, // fuelLy - removed
-          null, // fuelCapacityLy - removed
+          15, // fuel_ly NOT NULL default (legacy column)
+          15, // fuel_capacity_ly NOT NULL default (legacy column)
           100, // hullIntegrity - default
           100, // hullMax - default
           '{}', // armaments_json - removed
@@ -1045,7 +1055,7 @@ export function resetDatabase(): void {
       DELETE FROM markets;
       DELETE FROM systems;
       DELETE FROM players;
-      DELETE FROM durable_object_storage;
+      DELETE FROM kv_storage;
     `);
     
     // Reset SQLite sequences/auto-increment (if table exists)

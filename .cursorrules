@@ -14,7 +14,7 @@ When modifying or adding API endpoints:
    - Response structure with examples
    - Notes about behavior, side effects, or important details
 
-2. **Update the dev interface** - Both `src/index.ts` and `src/local-server.ts` embed the API documentation in the dev interface HTML. When `api-docs.ts` is updated, ensure the dev interface displays it correctly.
+2. **Update the dev interface** - `src/local-server.ts` embeds the API documentation in the dev interface HTML. When `api-docs.ts` is updated, ensure the dev interface displays it correctly.
 
 3. **Add code comments** - Add JSDoc-style comments to endpoint handler functions explaining:
    - What the endpoint does
@@ -38,12 +38,11 @@ When modifying or adding API endpoints:
 - Write tests for new features
 - **CRITICAL: Every crash scenario must have a test** - When fixing a crash or runtime error, immediately add a test that reproduces the crash scenario to prevent regression
 - Ensure existing tests pass before committing
-- Test both local server and Cloudflare Worker versions
+- Test local server (npm test)
 
 ## File Organization
 
 - `src/api-docs.ts` - API documentation (must be kept updated)
-- `src/index.ts` - Cloudflare Worker entry point
 - `src/local-server.ts` - Local Node.js server entry point
 - `src/star-system.ts` - StarSystem Durable Object
 - `src/ship.ts` - Ship Durable Object
@@ -54,7 +53,7 @@ When modifying or adding API endpoints:
 ## Important Reminders
 
 - **Documentation is visible in the dev interface** - Users see it at `/dev`, so it must be accurate and helpful
-- **Both local and Cloudflare versions** - Changes should work in both environments
+- **Local server only** - No Cloudflare Worker in this repo; `src/index.ts` does not exist
 - **Deterministic simulation** - All RNG must use deterministic seeds for reproducible results
 - **Non-canonical player actions** - Player trades are experimental and don't affect NPC simulation
 - **Crash prevention** - Every runtime crash or error must have a corresponding test case to prevent regression. When fixing a crash, add a test that reproduces the crash scenario before the fix, ensuring the fix prevents the crash.

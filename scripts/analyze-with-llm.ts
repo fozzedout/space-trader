@@ -5,7 +5,10 @@
 import * as fs from "fs/promises";
 import * as path from "path";
 
-const LM_STUDIO_URL = process.env.LM_STUDIO_URL || "http://localhost:1234/v1/chat/completions";
+const RAW_LM_STUDIO_URL = process.env.LM_STUDIO_URL || "http://localhost:1234/v1/chat/completions";
+const LM_STUDIO_URL = RAW_LM_STUDIO_URL.includes("/v1/")
+  ? RAW_LM_STUDIO_URL
+  : `${RAW_LM_STUDIO_URL.replace(/\/$/, "")}/v1/chat/completions`;
 // Use local-model (LM Studio will use whatever model is currently loaded)
 // Or specify a model via LM_STUDIO_MODEL env var
 const MODEL = process.env.LM_STUDIO_MODEL || "local-model";
@@ -71,6 +74,9 @@ PROVIDE:
   }
 
   const data = await response.json();
+  if (!data?.choices?.length) {
+    throw new Error(`Unexpected LM Studio response: ${JSON.stringify(data).slice(0, 2000)}`);
+  }
   return data.choices[0]?.message?.content || "No response from LLM";
 }
 

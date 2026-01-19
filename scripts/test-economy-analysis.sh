@@ -17,8 +17,17 @@ SERVER_URL="${SERVER_URL:-http://localhost:3000}"
 HEALTH_URL="${SERVER_URL%/}/api/health"
 DEFAULT_SERVER_URL="http://localhost:3000"
 
+check_url() {
+    local url="$1"
+    if command -v curl > /dev/null 2>&1; then
+        curl -s "$url" > /dev/null 2>&1
+    else
+        node -e "require('http').get('$url', (r) => {process.exit(r.statusCode === 200 ? 0 : 1);}).on('error', () => process.exit(1));"
+    fi
+}
+
 # Check if server is running
-if ! curl -s "$HEALTH_URL" > /dev/null 2>&1; then
+if ! check_url "$HEALTH_URL"; then
     if [ "$SERVER_URL" != "$DEFAULT_SERVER_URL" ]; then
         echo "ERROR: Server not reachable at $SERVER_URL"
         exit 1
@@ -31,14 +40,14 @@ if ! curl -s "$HEALTH_URL" > /dev/null 2>&1; then
     # Wait for server to be ready
     echo "Waiting for server to be ready..."
     for i in {1..30}; do
-        if curl -s "$HEALTH_URL" > /dev/null 2>&1; then
+        if check_url "$HEALTH_URL"; then
             echo "Server is ready!"
             break
         fi
         sleep 1
     done
     
-    if ! curl -s "$HEALTH_URL" > /dev/null 2>&1; then
+    if ! check_url "$HEALTH_URL"; then
         echo "ERROR: Server failed to start"
         kill $SERVER_PID 2>/dev/null || true
         exit 1
@@ -75,7 +84,7 @@ echo "Step 2: Analyzing data with LM Studio..."
 echo ""
 
 # Check if LM Studio is accessible
-if ! curl -s http://localhost:1234/v1/models > /dev/null 2>&1; then
+if ! check_url "http://localhost:1234/v1/models"; then
     echo "⚠️  WARNING: LM Studio API not accessible at http://localhost:1234"
     echo "Skipping LLM analysis in test mode (this is optional)"
     echo ""
