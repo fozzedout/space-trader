@@ -1,8 +1,9 @@
 import { generateGalaxy, type Galaxy, type GalaxyOptions } from "./galaxy.js";
 import { GOOD_IDS, GOODS, type GoodId } from "./goods.js";
+import { observePlayer, type PlayerAction, type PlayerObservation } from "./player.js";
 import { Rng } from "./rng.js";
 import type { Shock, StarSystem } from "./system.js";
-import { DEFAULT_TRADER_CONFIG, type TraderConfig } from "./trader.js";
+import { DEFAULT_TRADER_CONFIG, Trader, type TraderConfig } from "./trader.js";
 
 export interface GoodMetrics {
   /** Mean of price/basePrice across systems. 1.0 = perfect equilibrium. */
@@ -79,6 +80,56 @@ export class Simulation {
   /** Find systems by role, e.g. to target a disaster at an exporter. */
   systemsByRole(role: StarSystem["role"]): StarSystem[] {
     return this.galaxy.systems.filter((s) => s.role === role);
+  }
+
+  /**
+   * Add a player-controlled ship. It participates exactly like an NPC —
+   * same markets, news, bank, foreclosure — but executes queued actions
+   * (see player.ts) instead of the planner. Returns the ship id.
+   * Add players before running if determinism across runs matters.
+   */
+  addPlayer(opts?: { credits?: number; capacity?: number; locationId?: number }): number {
+    const id = this.galaxy.traders.length;
+    const player = new Trader({
+      id,
+      credits: opts?.credits ?? 5000,
+      capacity: opts?.capacity ?? 100,
+      locationId: opts?.locationId ?? this.galaxy.systems.find((s) => s.isHub)?.id ?? 0,
+    });
+    player.controller = "player";
+    // Same founding survey every ship gets at galaxy creation; fresher
+    // knowledge must physically travel, for players too.
+    player.board.syncWith(this.galaxy.hubNet.board);
+    this.galaxy.traders.push(player);
+    return id;
+  }
+
+  /** What the ship is entitled to know right now (information symmetry). */
+  observe(shipId: number): PlayerObservation {
+    return observePlayer(
+      this.ship(shipId),
+      this.galaxy.systems,
+      this.galaxy.hubNet,
+      this.tick,
+      this.traderConfig,
+    );
+  }
+
+  /**
+   * Queue an action for a player ship; it executes on the ship's next
+   * tick (one action per tick; queueing again before then replaces it).
+   * The outcome lands in the next observation's `lastActionResult`.
+   */
+  act(shipId: number, action: PlayerAction): void {
+    const ship = this.ship(shipId);
+    if (ship.controller !== "player") throw new Error(`ship ${shipId} is not player-controlled`);
+    ship.pendingAction = action;
+  }
+
+  private ship(shipId: number): Trader {
+    const ship = this.galaxy.traders.find((t) => t.id === shipId);
+    if (!ship) throw new Error(`unknown ship ${shipId}`);
+    return ship;
   }
 
   /**

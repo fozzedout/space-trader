@@ -33,6 +33,8 @@ here before starting.
 | Ship equipment from real parts: fuel scoop + asteroid shredder | done | `src/equipment.ts`, `src/loans.test.ts` |
 | Station bank: collateral-capped loans, refinancing for gear, delinquency-based foreclosure | done | `src/trader.ts`, `src/loans.test.ts` |
 | Scale check: 96 systems / 480 traders benchmarked; economics hold, repositioning scan bounded | done | ~50ms/tick at 96 systems; debt confirmed as working capital (drains to 0) |
+| Player ships: observation/action API with information symmetry | done | `src/player.ts`, `src/player.test.ts` |
+| LLM driver: Claude (or offline heuristic) plays a ship | done | `src/llm-driver.ts`, `npm run play` |
 
 ## Next (one at a time, each with a scenario test)
 
@@ -45,7 +47,6 @@ caused the first attempt's trader bleed-out.
 | Task | Status | Notes |
 |------|--------|-------|
 | Pirates preying on ships in transit (cargo loss) | not started | Stake-proportional (safe); route risk becomes a price factor; viability suite bounds tolerable predation |
-| Player ships: join the sim using the same market and InfoBoard APIs | not started | Players move prices and learn news exactly like NPCs |
 | Staleness-discounted route scoring (confidence decay on old observations) | not started | Traders currently trust old snapshots at face value |
 | Upkeep ("air tax") + endogenous trader entry/exit | not started | ONLY if turnover is wanted as game texture; deliberate churn, bounded by viability tests — never a side effect again |
 | Credit conservation: system treasuries as counterparties | not started | Inflation is ~2x/1000 ticks; fuel + upkeep are credit sinks that reduce it first |

@@ -18,8 +18,10 @@ stabilizers.
 
 ```bash
 npm install
-npm test        # type-check + 37 tests, incl. disaster-recovery & trader viability
+npm test        # type-check + 43 tests, incl. disaster-recovery & trader viability
 npm run sim     # headless demo: warmup → blight + pirate raid → recovery
+npm run play    # drive a player ship: Claude if ANTHROPIC_API_KEY is set,
+                # otherwise an offline heuristic agent
 ```
 
 The demo output shows average price (as a multiple of base price) and
@@ -88,6 +90,37 @@ and when the term runs short they park and grind until clear. Default is
 real — the bank liquidates cargo, strips gear, and seizes the ship
 (`loans.test.ts`); the viability suite requires zero seizures in ordinary
 play, including the disaster marathon.
+
+## Driving a ship: players and LLM agents
+
+A player ship is an ordinary ship (`sim.addPlayer()`): same markets, same
+hub-relayed news, same bank, same foreclosure — but its decisions come
+from queued actions instead of the NPC planner. The loop is:
+
+```ts
+const sim = new Simulation(42);
+const id = sim.addPlayer({ credits: 5000, capacity: 100 });
+sim.run(300);                         // let the economy warm up
+const obs = sim.observe(id);          // JSON: only what the ship may know
+sim.act(id, { type: "buy", good: "food", qty: 30 });
+sim.step();                           // action executes on the ship's tick
+sim.observe(id).lastActionResult;     // ok/failed + reason
+```
+
+Actions: `buy`, `sell`, `travel`, `harvest`, `buy_equipment`, `borrow`,
+`repay`, `wait` — one per tick, single-commodity hold, no actions in
+transit. Invalid actions fail with a reason (never throw); a bad move
+costs the tick, which is exactly the cost a human player would pay.
+
+The observation enforces **information symmetry**: the local market live,
+remote systems as dated hub-news snapshots (`newsAgeTicks`), shipping
+manifests only while docked at a hub. `src/llm-driver.ts` connects Claude
+to this loop (structured-output JSON actions; `npm run play` with
+`ANTHROPIC_API_KEY`, plus `SEED` / `DECISIONS` / `MODEL` / `EFFORT`) and
+ships an offline heuristic decider used as a baseline and in tests —
+`player.test.ts` proves the observation carries enough signal to trade
+profitably, and that a delinquent player loses their ship like anyone
+else.
 
 ## Information model (nobody is omniscient)
 
@@ -158,7 +191,9 @@ and let `viability.test.ts` bound the churn rate.
 | `src/equipment.ts` | Ship gear (scoop, shredder) assembled from real parts at stations |
 | `src/trader.ts` | NPC trader: route evaluation on observed (not live) prices, loans, harvesting, travel |
 | `src/galaxy.ts` | Deterministic, needs-consistent galaxy generation |
-| `src/sim.ts` | Orchestrator: tick order, external events (shocks, raids), metrics, state hash |
+| `src/player.ts` | Player/agent API: observations (information-symmetric) and actions |
+| `src/llm-driver.ts` | Claude (or heuristic) playing a ship through the player API |
+| `src/sim.ts` | Orchestrator: tick order, external events (shocks, raids), metrics, state hash, player glue |
 | `src/cli.ts` | Headless demo scenario |
 | `src/*.test.ts` | `self-balance.test.ts` proves the premise; `viability.test.ts` proves traders stay in business |
 

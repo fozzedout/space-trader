@@ -1,4 +1,5 @@
 import { EQUIPMENT, buyEquipment, equipmentQuote, type EquipmentId } from "./equipment.js";
+import type { ActionResult, PlayerAction } from "./player.js";
 import { GOOD_IDS, type GoodId } from "./goods.js";
 import { HubNetwork, InfoBoard, takeSnapshot } from "./info.js";
 import type { Rng } from "./rng.js";
@@ -144,6 +145,13 @@ export class Trader {
   loan: Loan | null = null;
   /** False once the bank has seized the ship (loan default). */
   active = true;
+  /** "ai" ships run the NPC planner; "player" ships execute queued
+   * actions (from a UI, a script, or an LLM — see player.ts). All
+   * mechanics — markets, news, bank, foreclosure — are identical. */
+  controller: "ai" | "player" = "ai";
+  /** Next action for a player-controlled ship; consumed on its tick. */
+  pendingAction: PlayerAction | null = null;
+  lastActionResult: ActionResult | null = null;
 
   /** Lifetime diagnostics. */
   tripsCompleted = 0;
@@ -222,13 +230,176 @@ export class Trader {
       return;
     }
 
+    // Being docked here means seeing this market live; docking at a hub
+    // additionally swaps news with the whole relay network. Identical
+    // for NPC and player ships.
+    this.board.record(here.id, takeSnapshot(here, tick));
+    if (here.isHub) this.board.syncWith(hubNet.board);
+
+    if (this.controller === "player") {
+      const action = this.pendingAction ?? { type: "wait" as const };
+      this.pendingAction = null;
+      this.lastActionResult = this.executePlayerAction(tick, here, systems, cfg, hubNet, action);
+      return;
+    }
+
     this.plan(tick, here, systems, cfg, rng, hubNet);
+  }
+
+  /**
+   * Execute one queued player action. Validation failures are reported
+   * in the result (and surfaced in the next observation), never thrown —
+   * an agent's bad move costs a tick, not a crash.
+   */
+  private executePlayerAction(
+    tick: number,
+    here: StarSystem,
+    systems: StarSystem[],
+    cfg: TraderConfig,
+    hubNet: HubNetwork,
+    action: PlayerAction,
+  ): ActionResult {
+    const fail = (detail: string): ActionResult => ({ tick, action, ok: false, detail });
+    const ok = (detail: string): ActionResult => ({ tick, action, ok: true, detail });
+
+    switch (action.type) {
+      case "wait":
+        return ok("waited");
+
+      case "buy": {
+        if (!Number.isFinite(action.qty) || action.qty < 1) return fail("qty must be >= 1");
+        const qty = Math.floor(action.qty);
+        if (this.cargo && this.cargo.good !== action.good) {
+          return fail(`hold already carries ${this.cargo.good} (one commodity at a time)`);
+        }
+        const held = this.cargo?.qty ?? 0;
+        if (held + qty > this.capacity) {
+          return fail(`capacity ${this.capacity}, already holding ${held}`);
+        }
+        const market = here.markets[action.good];
+        if (qty > market.inventory) {
+          return fail(`market has only ${Math.floor(market.inventory)} ${action.good}`);
+        }
+        const cost = market.quoteBuy(qty);
+        if (cost > this.credits) {
+          return fail(`costs ${cost.toFixed(0)}, you have ${this.credits.toFixed(0)}`);
+        }
+        this.credits -= market.executeBuy(qty);
+        this.cargo = this.cargo
+          ? { good: action.good, qty: held + qty, costBasis: this.cargo.costBasis + cost }
+          : { good: action.good, qty, costBasis: cost };
+        return ok(`bought ${qty} ${action.good} for ${cost.toFixed(0)}`);
+      }
+
+      case "sell": {
+        if (!this.cargo || this.cargo.good !== action.good) {
+          return fail(`not holding ${action.good}`);
+        }
+        if (!Number.isFinite(action.qty) || action.qty < 1) return fail("qty must be >= 1");
+        const qty = Math.min(Math.floor(action.qty), this.cargo.qty);
+        const revenue = here.markets[action.good].executeSell(qty);
+        const basisShare = this.cargo.costBasis * (qty / this.cargo.qty);
+        this.credits += revenue;
+        this.totalProfit += revenue - basisShare;
+        this.cargo =
+          qty === this.cargo.qty
+            ? null
+            : {
+                good: this.cargo.good,
+                qty: this.cargo.qty - qty,
+                costBasis: this.cargo.costBasis - basisShare,
+              };
+        if (this.cargo === null) this.tripsCompleted += 1;
+        return ok(`sold ${qty} ${action.good} for ${revenue.toFixed(0)}`);
+      }
+
+      case "travel": {
+        const dest = systems.find((s) => s.id === action.destId);
+        if (!dest) return fail(`no system ${action.destId}`);
+        if (dest.id === here.id) return fail("already here");
+        const dist = here.distanceTo(dest);
+        const fuelUnits = dist * cfg.fuelPerDist;
+        if (here.markets.fuel.inventory < fuelUnits) {
+          return fail(
+            `port has ${here.markets.fuel.inventory.toFixed(1)} fuel, trip needs ${fuelUnits.toFixed(1)} (harvest to refill it, if you have a scoop)`,
+          );
+        }
+        this.depart(tick, here, dest, cfg);
+        // Departing a hub with cargo files a public flight plan — players
+        // are on the manifests like everyone else.
+        if (here.isHub && this.cargo && this.travel) {
+          hubNet.file({
+            destId: dest.id,
+            good: this.cargo.good,
+            qty: this.cargo.qty,
+            arrivalTick: this.travel.arrivalTick,
+          });
+        }
+        return ok(`departed for ${dest.name}, arriving tick ${this.travel!.arrivalTick}`);
+      }
+
+      case "harvest": {
+        if (!this.equipment.scoop && !this.equipment.shredder) {
+          return fail("no scoop or shredder fitted");
+        }
+        const before = this.credits;
+        this.harvest(here, cfg);
+        return ok(`harvested for ${(this.credits - before).toFixed(1)}`);
+      }
+
+      case "buy_equipment": {
+        if (this.equipment[action.equipment]) return fail(`${action.equipment} already fitted`);
+        const quote = equipmentQuote(here, action.equipment);
+        if (quote === null) return fail(`parts for ${action.equipment} not in stock here`);
+        if (quote > this.credits) {
+          return fail(`costs ~${quote.toFixed(0)}, you have ${this.credits.toFixed(0)} (borrow first?)`);
+        }
+        this.credits -= buyEquipment(here, action.equipment);
+        this.equipment[action.equipment] = true;
+        return ok(`fitted ${action.equipment}`);
+      }
+
+      case "borrow": {
+        if (!Number.isFinite(action.amount) || action.amount <= 0) {
+          return fail("amount must be > 0");
+        }
+        const maxDebt = this.shipValue(cfg) * cfg.loanToValue;
+        const newPrincipal = (this.loan?.principal ?? 0) + action.amount;
+        if (newPrincipal > maxDebt) {
+          return fail(
+            `total debt would be ${newPrincipal.toFixed(0)}, collateral supports ${maxDebt.toFixed(0)}`,
+          );
+        }
+        this.topUp(action.amount, tick, here, cfg);
+        return ok(
+          `borrowed ${action.amount.toFixed(0)} against the ship (term resets; due tick ${this.loan!.dueTick})`,
+        );
+      }
+
+      case "repay": {
+        if (!this.loan) return fail("no outstanding loan");
+        if (!Number.isFinite(action.amount) || action.amount <= 0) {
+          return fail("amount must be > 0");
+        }
+        const payment = Math.min(action.amount, this.loan.principal, this.credits);
+        if (payment <= 0) return fail("no credits to pay with");
+        this.credits -= payment;
+        this.loan.principal -= payment;
+        this.loan.lastPaymentTick = tick;
+        this.totalRepaid += payment;
+        const cleared = this.loan.principal <= 0.01;
+        if (cleared) this.loan = null;
+        return ok(cleared ? `paid ${payment.toFixed(0)}; loan cleared` : `paid ${payment.toFixed(0)}`);
+      }
+    }
   }
 
   private arrive(systems: StarSystem[]): void {
     if (!this.travel) return;
     this.locationId = this.travel.destId;
     this.travel = null;
+    // Player ships decide for themselves when (and how much) to sell.
+    if (this.controller === "player") return;
     if (this.cargo) {
       const market = this.systemById(systems, this.locationId).markets[this.cargo.good];
       const revenue = market.executeSell(this.cargo.qty);
@@ -247,11 +418,6 @@ export class Trader {
     rng: Rng,
     hubNet: HubNetwork,
   ): void {
-    // Being docked here means seeing this market live; docking at a hub
-    // additionally swaps news with the whole relay network.
-    this.board.record(here.id, takeSnapshot(here, tick));
-    if (here.isHub) this.board.syncWith(hubNet.board);
-
     // Paying the loan down comes before everything else: interest ticks,
     // and a cleared loan frees the collateral for the next opportunity.
     this.repay(tick, cfg);
