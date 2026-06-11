@@ -46,7 +46,9 @@ export const GOODS: Readonly<Record<GoodId, GoodDef>> = {
     priceElasticity: 0.9,
     minPriceMult: 0.3,
     maxPriceMult: 3.0,
-    inputs: { ore: 0.5 },
+    // Primary: skimmed from the local star, not refined from ore. Every
+    // system can harvest some; ships with scoops can too (see trader.ts).
+    inputs: {},
   },
   machinery: {
     basePrice: 120,
@@ -100,10 +102,13 @@ export const ROLES: readonly Role[] = [
 export const ROLE_PRODUCTION: Readonly<
   Record<Role, Readonly<Partial<Record<GoodId, number>>>>
 > = {
-  agricultural: { food: 4.5 },
-  mining: { ore: 1.2 },
-  industrial: { fuel: 0.5, machinery: 0.55 },
-  high_tech: { electronics: 0.45, luxuries: 0.2 },
+  // Every inhabited system skims some fuel from its star; industrial
+  // worlds run large-scale skimming/refining infrastructure. Most fuel
+  // demand is from ship travel, which is dynamic (see balance.test.ts).
+  agricultural: { food: 4.5, fuel: 0.1 },
+  mining: { ore: 1.2, fuel: 0.1 },
+  industrial: { fuel: 0.7, machinery: 0.55 },
+  high_tech: { electronics: 0.45, luxuries: 0.2, fuel: 0.1 },
 };
 
 /**

@@ -18,7 +18,7 @@ stabilizers.
 
 ```bash
 npm install
-npm test        # type-check + 30 tests, incl. disaster-recovery & trader viability
+npm test        # type-check + 33 tests, incl. disaster-recovery & trader viability
 npm run sim     # headless demo: warmup → blight + pirate raid → recovery
 ```
 
@@ -45,6 +45,20 @@ imports flow in, and the system recover.
 Disasters are just state changes (production shocks, inventory destruction).
 The same mechanics that distribute everyday surplus absorb them: the shock
 creates a price gap, the gap attracts traders, the deliveries close it.
+
+## Fuel and the scoop
+
+Travel burns fuel, bought from the origin market at every departure — the
+fleet is real demand on the fuel economy, and busy ports run lean. Fuel is
+a **primary good skimmed from stars** (every system harvests some,
+industrial worlds at scale), so like food and ore it can never deadlock the
+chain. Ships carry a scoop: when no trade is worth making — or a port has
+no fuel to sell — a ship skims the local star and sells into the local
+market. Harvesting is slow, capital-free income: the floor for a trader
+down on its luck, and the bootstrap that refuels a blockaded port from
+inside (`fuel.test.ts` proves both). Traders also make two-leg plans
+("fly empty to where the board says goods are cheap, buy, deliver"), which
+is how remote gluts get tapped instead of rotting behind storage caps.
 
 ## Information model (nobody is omniscient)
 

@@ -17,7 +17,9 @@ export interface GalaxyOptions {
 
 export const DEFAULT_GALAXY_OPTIONS: GalaxyOptions = {
   systems: 12,
-  tradersPerSystem: 3,
+  // Fuel hauling is real work on top of goods distribution, so the fleet
+  // is sized for both (3/system starved food routes of carriers).
+  tradersPerSystem: 4,
   size: 160,
 };
 

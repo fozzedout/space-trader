@@ -69,7 +69,12 @@ describe("economy balance invariants", () => {
       // Each good must run a positive surplus (logistics friction eats some
       // of it) but not a glut that floors prices everywhere.
       expect(surplus, `${good} surplus ${(surplus * 100).toFixed(1)}%`).toBeGreaterThan(0.02);
-      expect(surplus, `${good} surplus ${(surplus * 100).toFixed(1)}%`).toBeLessThan(0.8);
+      // Fuel is exempt from the glut bound: most fuel demand is ship
+      // travel, which is dynamic and invisible to this static check.
+      // viability/self-balance tests cover the fuel economy at runtime.
+      if (good !== "fuel") {
+        expect(surplus, `${good} surplus ${(surplus * 100).toFixed(1)}%`).toBeLessThan(0.8);
+      }
     }
   });
 });

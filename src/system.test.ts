@@ -17,15 +17,16 @@ describe("StarSystem tick", () => {
 
   it("derived production is limited by the scarcest input", () => {
     const sys = makeSystem("industrial");
-    sys.markets.ore.inventory = 1; // machinery needs 1 ore each, fuel 0.5 each
+    sys.markets.ore.inventory = 1; // machinery needs 1 ore per unit
     sys.markets.fuel.inventory = 100;
     const before = sys.markets.machinery.inventory;
     sys.tick(0);
-    // fuel produced first (order: fuel before machinery): 0.5*4=2 capacity,
-    // limited by ore 1/0.5 = 2 -> consumes all 1 ore. Machinery gets none.
     const produced = sys.markets.machinery.inventory - before;
-    // Machinery production should be (near) zero, and certainly not capacity (2.2).
-    expect(produced).toBeLessThanOrEqual(0);
+    // Capacity is 0.55 * pop 4 = 2.2, but only 1 ore is available, so at
+    // most 1 machinery is made (and the ore is consumed doing it).
+    expect(produced).toBeGreaterThan(0);
+    expect(produced).toBeLessThanOrEqual(1 + 1e-9);
+    expect(sys.markets.ore.inventory).toBeCloseTo(0);
   });
 
   it("never produces negative inventory and discards over-capacity stock", () => {
