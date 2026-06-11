@@ -49,23 +49,30 @@ export interface Manifest {
 export class HubNetwork {
   readonly board = new InfoBoard();
   private manifests: Manifest[] = [];
+  /** Sum of in-flight qty keyed by "destId:good" — pendingFor is on the
+   * innermost route-evaluation path, so it must be O(1). */
+  private pendingIndex = new Map<string, number>();
 
   file(manifest: Manifest): void {
     this.manifests.push(manifest);
+    const key = `${manifest.destId}:${manifest.good}`;
+    this.pendingIndex.set(key, (this.pendingIndex.get(key) ?? 0) + manifest.qty);
   }
 
   /** Units already in flight to `destId` for `good` (unexpired manifests). */
   pendingFor(destId: number, good: GoodId): number {
-    let sum = 0;
-    for (const m of this.manifests) {
-      if (m.destId === destId && m.good === good) sum += m.qty;
-    }
-    return sum;
+    return this.pendingIndex.get(`${destId}:${good}`) ?? 0;
   }
 
   /** Drop manifests for journeys that have already arrived. */
   prune(tick: number): void {
+    if (this.manifests.length === 0) return;
     this.manifests = this.manifests.filter((m) => m.arrivalTick > tick);
+    this.pendingIndex.clear();
+    for (const m of this.manifests) {
+      const key = `${m.destId}:${m.good}`;
+      this.pendingIndex.set(key, (this.pendingIndex.get(key) ?? 0) + m.qty);
+    }
   }
 }
 

@@ -86,15 +86,7 @@ Everything else is future work.
 ## Recommended path from here
 
 Grow only in directions that keep the proven loop testable, one feature at
-a time, each with a scenario test before merging:
-
-1. **Players**: a player is just a ship with a UI — the market API
-   (`quoteBuy`/`executeBuy`/...) already treats all ships identically.
-2. **Imperfect information**: traders currently have galaxy-wide price
-   visibility. Per-ship observed prices with staleness is the single most
-   interesting realism upgrade, and the metrics will show its cost.
-3. **Persistent pirates** as agents (not just events), so security becomes
-   an emergent price factor on routes.
-4. **Treasuries/credit conservation** if trader wealth inflation (currently
-   unbounded, ~2.2×/300 ticks) needs sinks.
-5. **Server + UI** once the headless sim is worth watching.
+a time, each with a scenario test before merging. The live roadmap (and
+what has landed since this review was written — hub-relayed information,
+physical fuel, equipment, station-bank loans) is in `PROGRESS.md`; the
+design principles that came out of each addition are in `README.md`.

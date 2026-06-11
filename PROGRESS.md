@@ -31,7 +31,8 @@ here before starting.
 | Fuel scoop: capital-free harvesting as income floor + port bootstrap | done | `src/trader.ts`, `src/fuel.test.ts` |
 | Opportunity-driven repositioning (two-leg plans tap remote gluts) | done | `src/trader.ts` |
 | Ship equipment from real parts: fuel scoop + asteroid shredder | done | `src/equipment.ts`, `src/loans.test.ts` |
-| Station bank: collateral-capped loans, refinancing for gear, default = ship seized | done | `src/trader.ts`, `src/loans.test.ts` |
+| Station bank: collateral-capped loans, refinancing for gear, delinquency-based foreclosure | done | `src/trader.ts`, `src/loans.test.ts` |
+| Scale check: 96 systems / 480 traders benchmarked; economics hold, repositioning scan bounded | done | ~50ms/tick at 96 systems; debt confirmed as working capital (drains to 0) |
 
 ## Next (one at a time, each with a scenario test)
 
@@ -48,7 +49,6 @@ caused the first attempt's trader bleed-out.
 | Staleness-discounted route scoring (confidence decay on old observations) | not started | Traders currently trust old snapshots at face value |
 | Upkeep ("air tax") + endogenous trader entry/exit | not started | ONLY if turnover is wanted as game texture; deliberate churn, bounded by viability tests — never a side effect again |
 | Credit conservation: system treasuries as counterparties | not started | Inflation is ~2x/1000 ticks; fuel + upkeep are credit sinks that reduce it first |
-| Larger-scale run (48+ systems, 500+ traders) perf check | not started | Keep tick cost roughly linear |
 | HTTP server + live market viewer | not started | Only once the headless sim is worth watching |
 
 ## Rules of growth

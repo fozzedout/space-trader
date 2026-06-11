@@ -51,6 +51,16 @@ export interface TraderConfig {
    * costs the ship.
    */
   emergencyGrindTicks: number;
+  /**
+   * Two-leg repositioning only scans the nearest N systems (plus all
+   * hubs) as candidate buy-origins. Flying empty across the galaxy
+   * almost never scores well anyway (score divides by total trip time),
+   * and an unbounded scan is O(systems²) per idle ship.
+   */
+  repositionScanLimit: number;
+  /** Past the due date, foreclosure happens only after this many ticks
+   * without a payment: default means stopping, not paying slowly. */
+  delinquencyGraceTicks: number;
 }
 
 export const DEFAULT_TRADER_CONFIG: TraderConfig = {
@@ -72,6 +82,8 @@ export const DEFAULT_TRADER_CONFIG: TraderConfig = {
   shredderWealthMult: 3,
   leveragedMarginMult: 2,
   emergencyGrindTicks: 150,
+  repositionScanLimit: 8,
+  delinquencyGraceTicks: 30,
 };
 
 interface Cargo {
@@ -90,6 +102,10 @@ export interface Loan {
   principal: number;
   lenderSystemId: number;
   dueTick: number;
+  /** Banks foreclose on debtors who STOP paying, not on slow payers —
+   * past the due date, any recent payment keeps the ship. Slow payers
+   * still bleed interest the whole time. */
+  lastPaymentTick: number;
 }
 
 interface Route {
@@ -184,10 +200,17 @@ export class Trader {
 
     const here = this.systemById(systems, this.locationId);
 
-    // Docked with an overdue loan: the bank forecloses. Cargo is
+    // Docked, overdue, AND delinquent: the bank forecloses. Cargo is
     // liquidated into the local market, and the ship — the collateral —
-    // is seized. The trader is out of the game.
-    if (this.loan && tick >= this.loan.dueTick && this.loan.principal > 0) {
+    // is seized. The trader is out of the game. A debtor past the due
+    // date who keeps making payments keeps the ship (and keeps paying
+    // interest).
+    if (
+      this.loan &&
+      tick >= this.loan.dueTick &&
+      this.loan.principal > 0 &&
+      tick - this.loan.lastPaymentTick > cfg.delinquencyGraceTicks
+    ) {
       if (this.cargo) {
         here.markets[this.cargo.good].executeSell(this.cargo.qty);
         this.cargo = null;
@@ -231,7 +254,7 @@ export class Trader {
 
     // Paying the loan down comes before everything else: interest ticks,
     // and a cleared loan frees the collateral for the next opportunity.
-    this.repay(cfg);
+    this.repay(tick, cfg);
 
     // Deadline pressure: with the term running out, a geared debtor
     // parks and works the local system until the loan is cleared. Slow
@@ -244,7 +267,7 @@ export class Trader {
       this.harvest(here, cfg);
       // A grinding ship isn't going anywhere: it doesn't need trip
       // capital, so nearly every credit goes straight to the bank.
-      this.repay(cfg, cfg.borrowCushion);
+      this.repay(tick, cfg, cfg.borrowCushion);
       return;
     }
 
@@ -321,9 +344,14 @@ export class Trader {
     const fuelMarket = here.markets.fuel;
     const canFuel = (s: StarSystem) =>
       fuelMarket.inventory >= here.distanceTo(s) * cfg.fuelPerDist;
+    const repositionCandidates = systems
+      .filter((s) => s.id !== here.id && !s.isHub)
+      .sort((a, b) => here.distanceTo(a) - here.distanceTo(b))
+      .slice(0, cfg.repositionScanLimit)
+      .concat(systems.filter((s) => s.isHub && s.id !== here.id));
     let reposition: { origin: StarSystem; score: number } | null = null;
-    for (const origin of systems) {
-      if (origin.id === here.id || !canFuel(origin)) continue;
+    for (const origin of repositionCandidates) {
+      if (!canFuel(origin)) continue;
       const firstLeg = Math.max(1, Math.ceil(here.distanceTo(origin) / cfg.speed));
       const plan = this.bestRouteFrom(here, origin, firstLeg, this.credits, systems, cfg, hubNet);
       if (
@@ -380,6 +408,7 @@ export class Trader {
       principal: amount,
       lenderSystemId: here.id,
       dueTick: tick + cfg.loanTermTicks,
+      lastPaymentTick: tick,
     };
     this.loansTaken += 1;
     this.totalBorrowed += amount;
@@ -404,12 +433,13 @@ export class Trader {
   }
 
   /** Pay the loan down with everything above the operating buffer. */
-  private repay(cfg: TraderConfig, buffer = cfg.repayBuffer): void {
+  private repay(tick: number, cfg: TraderConfig, buffer = cfg.repayBuffer): void {
     if (!this.loan) return;
     const payment = Math.min(this.loan.principal, this.credits - buffer);
     if (payment <= 0) return;
     this.credits -= payment;
     this.loan.principal -= payment;
+    this.loan.lastPaymentTick = tick;
     this.totalRepaid += payment;
     if (this.loan.principal <= 0.01) this.loan = null;
   }
