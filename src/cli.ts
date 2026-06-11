@@ -15,7 +15,7 @@ console.log(`Space Trader economy demo (seed ${seed})`);
 console.log(`${sim.galaxy.systems.length} systems, ${sim.galaxy.traders.length} traders\n`);
 for (const s of sim.galaxy.systems) {
   console.log(
-    `  #${s.id} ${s.name.padEnd(12)} ${s.role.padEnd(13)} pop ${s.pop.toFixed(1)}  (${s.x.toFixed(0)}, ${s.y.toFixed(0)})`,
+    `  #${s.id} ${s.name.padEnd(12)} ${s.role.padEnd(13)} pop ${s.pop.toFixed(1)}  (${s.x.toFixed(0)}, ${s.y.toFixed(0)})${s.isHub ? "  [TRADE HUB]" : ""}`,
   );
 }
 
@@ -32,7 +32,7 @@ function printMetrics(label: string): void {
     );
   }
   console.log(
-    `  trader credits: ${Math.round(m.totalTraderCredits).toLocaleString()} | in transit: ${m.tradersInTransit}`,
+    `  trader credits: ${Math.round(m.totalTraderCredits).toLocaleString()} | in transit: ${m.tradersInTransit} | avg market news age: ${m.avgInfoAgeTicks.toFixed(0)} ticks`,
   );
 }
 

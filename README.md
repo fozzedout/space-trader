@@ -18,7 +18,7 @@ stabilizers.
 
 ```bash
 npm install
-npm test        # type-check + 22 tests, incl. disaster-recovery scenarios
+npm test        # type-check + 28 tests, incl. disaster-recovery scenarios
 npm run sim     # headless demo: warmup → blight + pirate raid → recovery
 ```
 
@@ -46,6 +46,32 @@ Disasters are just state changes (production shocks, inventory destruction).
 The same mechanics that distribute everyday surplus absorb them: the shock
 creates a price gap, the gap attracts traders, the deliveries close it.
 
+## Information model (nobody is omniscient)
+
+Ships don't see live remote markets. Each ship has an **InfoBoard**: a
+snapshot of every market as of the last time it (or the network) saw it.
+News physically travels:
+
+- Docking at a system shows that market live.
+- A subset of systems are **trade hubs**, connected by an instant relay.
+  Docking at any hub uploads everything the ship has observed and downloads
+  everything the network has heard — so news of a shortage spreads ship →
+  hub → whole network → every ship that next checks in at a hub.
+- Ships departing a hub with cargo file a **shipping manifest**; planners
+  at hubs see what's already in flight and discount the opportunity. This
+  is what stops hub-synced traders all chasing the same shortage (shared
+  stale news otherwise causes herding — see `info.ts`).
+- Idle traders drift toward hubs to hear the news.
+
+A far-away trader learns of a demand hotspot only when the news reaches it,
+and trades are bets that the shortage still exists on arrival — selling is
+committed, so stale information costs real money. The metric
+`avgInfoAgeTicks` tracks how stale the fleet's knowledge is.
+
+**Information symmetry:** any ship — NPC or future player — uses exactly
+the same InfoBoard and hub mechanics. Players will never be more (or less)
+informed than the market access they physically have.
+
 ## Project layout
 
 | File | Purpose |
@@ -53,7 +79,8 @@ creates a price gap, the gap attracts traders, the deliveries close it.
 | `src/goods.ts` | Goods catalog, production chain (DAG), role production/consumption rates |
 | `src/market.ts` | Per-system per-good market: pure price function, midpoint trade execution |
 | `src/system.ts` | Star system tick: input-limited production, consumption, storage caps, shocks |
-| `src/trader.ts` | NPC trader: route evaluation, load sizing, travel |
+| `src/info.ts` | Information model: per-ship InfoBoards, hub relay network, shipping manifests |
+| `src/trader.ts` | NPC trader: route evaluation on observed (not live) prices, load sizing, travel |
 | `src/galaxy.ts` | Deterministic, needs-consistent galaxy generation |
 | `src/sim.ts` | Orchestrator: tick order, external events (shocks, raids), metrics, state hash |
 | `src/cli.ts` | Headless demo scenario |
@@ -69,6 +96,9 @@ creates a price gap, the gap attracts traders, the deliveries close it.
   roots (`balance.test.ts` enforces this).
 - **Needs-consistency**: generated galaxies must run an aggregate surplus
   on every good (`balance.test.ts` enforces this too).
+- **Information symmetry**: no ship reads live remote market state; all
+  knowledge flows through InfoBoards and the hub network, identically for
+  NPCs and players.
 
 Every new feature should come with a scenario test showing the economy still
 balances with it enabled.

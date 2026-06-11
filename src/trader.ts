@@ -1,4 +1,5 @@
 import { GOOD_IDS, type GoodId } from "./goods.js";
+import { HubNetwork, InfoBoard, takeSnapshot } from "./info.js";
 import type { Rng } from "./rng.js";
 import type { StarSystem } from "./system.js";
 
@@ -13,6 +14,8 @@ export interface TraderConfig {
   idleRelocateAfter: number;
   /** Traders only buy inventory above this fraction of target stock. */
   originReserveFrac: number;
+  /** When relocating idle, probability of heading to a hub for fresh news. */
+  hubRelocateBias: number;
 }
 
 export const DEFAULT_TRADER_CONFIG: TraderConfig = {
@@ -21,6 +24,7 @@ export const DEFAULT_TRADER_CONFIG: TraderConfig = {
   minMarginFrac: 0.05,
   idleRelocateAfter: 8,
   originReserveFrac: 0.4,
+  hubRelocateBias: 0.5,
 };
 
 interface Cargo {
@@ -35,10 +39,12 @@ interface Travel {
 }
 
 /**
- * An NPC trader. Pure profit-seeker with full price visibility: buys where
- * goods are cheap (surplus), sells where they're dear (shortage). The
- * aggregate effect of many of these is the self-balancing distribution
- * network — there is no central coordinator.
+ * An NPC trader. Pure profit-seeker: buys where goods are cheap (surplus),
+ * sells where it BELIEVES they're dear (shortage). Belief comes from its
+ * InfoBoard — personal observations plus hub network news — never from
+ * live remote state. Player ships get exactly the same information
+ * mechanics. The aggregate effect of many of these is the self-balancing
+ * distribution network — there is no central coordinator.
  */
 export class Trader {
   readonly id: number;
@@ -48,6 +54,8 @@ export class Trader {
   cargo: Cargo | null = null;
   travel: Travel | null = null;
   idleTicks = 0;
+  /** What this ship knows about the galaxy's markets. */
+  readonly board = new InfoBoard();
 
   /** Lifetime diagnostics. */
   tripsCompleted = 0;
@@ -60,12 +68,18 @@ export class Trader {
     this.locationId = opts.locationId;
   }
 
-  tick(tick: number, systems: StarSystem[], cfg: TraderConfig, rng: Rng): void {
+  tick(
+    tick: number,
+    systems: StarSystem[],
+    cfg: TraderConfig,
+    rng: Rng,
+    hubNet: HubNetwork,
+  ): void {
     if (this.travel) {
       if (tick < this.travel.arrivalTick) return;
       this.arrive(systems);
     }
-    this.plan(tick, systems, cfg, rng);
+    this.plan(tick, systems, cfg, rng, hubNet);
   }
 
   private arrive(systems: StarSystem[]): void {
@@ -82,8 +96,19 @@ export class Trader {
     }
   }
 
-  private plan(tick: number, systems: StarSystem[], cfg: TraderConfig, rng: Rng): void {
+  private plan(
+    tick: number,
+    systems: StarSystem[],
+    cfg: TraderConfig,
+    rng: Rng,
+    hubNet: HubNetwork,
+  ): void {
     const here = this.systemById(systems, this.locationId);
+
+    // Being docked here means seeing this market live; docking at a hub
+    // additionally swaps news with the whole relay network.
+    this.board.record(here.id, takeSnapshot(here, tick));
+    if (here.isHub) this.board.syncWith(hubNet.board);
 
     let best: { good: GoodId; qty: number; dest: StarSystem; score: number; cost: number } | null =
       null;
@@ -97,12 +122,21 @@ export class Trader {
 
       for (const dest of systems) {
         if (dest.id === here.id) continue;
-        const destMarket = dest.markets[good];
+        // Destination state is known only as of the last report — the
+        // trade is a bet that the shortage still exists on arrival.
+        const snap = this.board.get(dest.id);
+        if (!snap) continue;
+        const destMarket = dest.markets[good]; // static structure only (targetStock, price curve)
+        // At a hub, the manifests show cargo already in flight to this
+        // destination — count it as if it had landed, so hub-synced
+        // traders don't all chase the same shortage.
+        const pending = here.isHub ? hubNet.pendingFor(dest.id, good) : 0;
+        const knownInv = snap.inventories[good] + pending;
 
         // Ship only what the destination can absorb above its target —
         // dumping a full hold into a tiny market would crash its price
-        // (and the midpoint quote prices that in, making it unprofitable).
-        const absorbable = Math.floor(destMarket.targetStock * 1.2 - destMarket.inventory);
+        // (and the midpoint estimate prices that in, making it unprofitable).
+        const absorbable = Math.floor(destMarket.targetStock * 1.2 - knownInv);
         const qty = Math.min(maxLoad, absorbable);
         if (qty < 1) continue;
 
@@ -110,7 +144,7 @@ export class Trader {
         if (cost > this.credits) continue;
         const dist = here.distanceTo(dest);
         const travelTicks = Math.max(1, Math.ceil(dist / cfg.speed));
-        const revenue = destMarket.quoteSell(qty);
+        const revenue = destMarket.priceAt(knownInv + qty / 2) * qty;
         const profit = revenue - cost - dist * cfg.costPerDist;
         if (profit < cost * cfg.minMarginFrac) continue;
         const score = profit / travelTicks;
@@ -126,18 +160,33 @@ export class Trader {
       this.credits -= cost;
       this.cargo = { good: best.good, qty: best.qty, costBasis: cost };
       this.depart(tick, here, best.dest, cfg);
+      // Departing a hub with cargo files a public flight plan.
+      if (here.isHub && this.travel) {
+        hubNet.file({
+          destId: best.dest.id,
+          good: best.good,
+          qty: best.qty,
+          arrivalTick: this.travel.arrivalTick,
+        });
+      }
       this.idleTicks = 0;
       return;
     }
 
-    // Nothing profitable here: after a while, reposition to a random
-    // system so traders don't pile up in dead corners of the galaxy.
+    // Nothing profitable here (as far as this ship knows): after a while,
+    // reposition — preferring a hub, where the latest news is, so stuck
+    // traders rediscover opportunities instead of idling on stale boards.
     this.idleTicks += 1;
     if (this.idleTicks >= cfg.idleRelocateAfter && systems.length > 1) {
+      const hubs = systems.filter((s) => s.isHub && s.id !== here.id);
       let dest: StarSystem;
-      do {
-        dest = rng.pick(systems);
-      } while (dest.id === here.id);
+      if (hubs.length > 0 && rng.next() < cfg.hubRelocateBias) {
+        dest = rng.pick(hubs);
+      } else {
+        do {
+          dest = rng.pick(systems);
+        } while (dest.id === here.id);
+      }
       this.depart(tick, here, dest, cfg);
       this.idleTicks = 0;
     }

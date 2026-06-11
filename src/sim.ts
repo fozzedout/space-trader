@@ -17,6 +17,8 @@ export interface Metrics {
   goods: Record<GoodId, GoodMetrics>;
   totalTraderCredits: number;
   tradersInTransit: number;
+  /** Mean staleness (ticks) of traders' market knowledge across all systems. */
+  avgInfoAgeTicks: number;
 }
 
 /**
@@ -40,11 +42,12 @@ export class Simulation {
   }
 
   step(): void {
+    this.galaxy.hubNet.prune(this.tick);
     for (const system of this.galaxy.systems) {
       system.tick(this.tick);
     }
     for (const trader of this.galaxy.traders) {
-      trader.tick(this.tick, this.galaxy.systems, this.traderConfig, this.rng);
+      trader.tick(this.tick, this.galaxy.systems, this.traderConfig, this.rng, this.galaxy.hubNet);
     }
     this.tick += 1;
   }
@@ -114,11 +117,18 @@ export class Simulation {
         stockouts,
       };
     }
+    const systemIds = this.galaxy.systems.map((s) => s.id);
+    const traders = this.galaxy.traders;
     return {
       tick: this.tick,
       goods,
-      totalTraderCredits: this.galaxy.traders.reduce((acc, t) => acc + t.credits, 0),
-      tradersInTransit: this.galaxy.traders.filter((t) => t.travel !== null).length,
+      totalTraderCredits: traders.reduce((acc, t) => acc + t.credits, 0),
+      tradersInTransit: traders.filter((t) => t.travel !== null).length,
+      avgInfoAgeTicks:
+        traders.length === 0
+          ? 0
+          : traders.reduce((acc, t) => acc + t.board.avgAge(this.tick, systemIds), 0) /
+            traders.length,
     };
   }
 

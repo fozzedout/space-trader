@@ -1,3 +1,4 @@
+import { HubNetwork, takeSnapshot } from "./info.js";
 import { ROLES, type Role } from "./goods.js";
 import { Rng } from "./rng.js";
 import { StarSystem } from "./system.js";
@@ -10,6 +11,8 @@ export interface GalaxyOptions {
   tradersPerSystem: number;
   /** Side length of the square map. */
   size: number;
+  /** Trade hubs (information relay nodes). Default: 1 per 6 systems, min 2. */
+  hubCount?: number;
 }
 
 export const DEFAULT_GALAXY_OPTIONS: GalaxyOptions = {
@@ -21,6 +24,8 @@ export const DEFAULT_GALAXY_OPTIONS: GalaxyOptions = {
 export interface Galaxy {
   systems: StarSystem[];
   traders: Trader[];
+  /** The hub relay network: shared news and shipping manifests (see info.ts). */
+  hubNet: HubNetwork;
 }
 
 const NAME_PREFIXES = [
@@ -69,6 +74,8 @@ export function generateGalaxy(seed: number | string, opts?: Partial<GalaxyOptio
     );
   }
 
+  designateHubs(systems, o.hubCount ?? Math.max(2, Math.floor(count / 6)));
+
   const traders: Trader[] = [];
   const traderRng = rng.fork("traders");
   const traderCount = count * o.tradersPerSystem;
@@ -83,5 +90,47 @@ export function generateGalaxy(seed: number | string, opts?: Partial<GalaxyOptio
     );
   }
 
-  return { systems, traders };
+  // Seed everyone with the founding survey: a tick-0 snapshot of every
+  // system (all markets start at target stock, so this is just base
+  // prices). From here on, fresher knowledge must physically travel.
+  const hubNet = new HubNetwork();
+  for (const system of systems) hubNet.board.record(system.id, takeSnapshot(system, 0));
+  for (const trader of traders) trader.board.syncWith(hubNet.board);
+
+  return { systems, traders, hubNet };
+}
+
+/**
+ * Pick hub systems with farthest-point sampling: the first hub is the most
+ * central system, each next hub is the system farthest from all chosen
+ * hubs. Deterministic, and spreads the relay network across the map so no
+ * corner of the galaxy is far from the news.
+ */
+function designateHubs(systems: StarSystem[], hubCount: number): void {
+  if (hubCount <= 0 || systems.length === 0) return;
+  const cx = systems.reduce((a, s) => a + s.x, 0) / systems.length;
+  const cy = systems.reduce((a, s) => a + s.y, 0) / systems.length;
+
+  const hubs: StarSystem[] = [];
+  let first = systems[0]!;
+  for (const s of systems) {
+    if (Math.hypot(s.x - cx, s.y - cy) < Math.hypot(first.x - cx, first.y - cy)) first = s;
+  }
+  hubs.push(first);
+
+  while (hubs.length < Math.min(hubCount, systems.length)) {
+    let next: StarSystem | null = null;
+    let bestDist = -1;
+    for (const s of systems) {
+      if (hubs.includes(s)) continue;
+      const minDist = Math.min(...hubs.map((h) => s.distanceTo(h)));
+      if (minDist > bestDist) {
+        bestDist = minDist;
+        next = s;
+      }
+    }
+    if (!next) break;
+    hubs.push(next);
+  }
+  for (const hub of hubs) hub.isHub = true;
 }

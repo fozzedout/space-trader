@@ -37,6 +37,8 @@ export class StarSystem {
   readonly role: Role;
   /** Population in millions; scales production and consumption. */
   readonly pop: number;
+  /** Trade hubs relay market news between each other instantly (see info.ts). */
+  isHub = false;
   readonly markets: Record<GoodId, Market>;
   shocks: Shock[] = [];
 

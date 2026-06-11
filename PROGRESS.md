@@ -25,13 +25,14 @@ here before starting.
 | Scenario tests: equilibrium, blight, raid, war demand, no-traders control | done | `src/self-balance.test.ts` |
 | Balance invariant tests (DAG, value chain, aggregate surplus) | done | `src/balance.test.ts` |
 | Headless demo CLI | done | `src/cli.ts` |
+| Imperfect information: per-ship InfoBoards, hub relay network, shipping manifests | done | `src/info.ts`, `src/trader.ts` |
 
 ## Next (one at a time, each with a scenario test)
 
 | Task | Status | Notes |
 |------|--------|-------|
-| Player ships: join the sim as a ship using the same market API | not started | Players must move prices exactly like NPCs |
-| Imperfect information: per-ship observed prices with staleness | not started | Replace galaxy-wide visibility; measure equilibrium cost in metrics |
+| Player ships: join the sim as a ship using the same market and InfoBoard APIs | not started | Players move prices and learn news exactly like NPCs |
+| Staleness-discounted route scoring (confidence decay on old observations) | not started | Traders currently trust old snapshots at face value |
 | Persistent pirate agents preying on routes | not started | Security as an emergent price factor; test recovery still holds |
 | Credit conservation: system treasuries as counterparties | not started | Only if trader wealth inflation becomes a problem |
 | Larger-scale run (48+ systems, 500+ traders) perf check | not started | Keep tick cost roughly linear |
