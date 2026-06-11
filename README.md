@@ -72,6 +72,36 @@ committed, so stale information costs real money. The metric
 the same InfoBoard and hub mechanics. Players will never be more (or less)
 informed than the market access they physically have.
 
+## Why traders survive bad luck (no bleed-out)
+
+Trading here is genuinely risky — measured over long runs, **~30% of trips
+lose money** (stale news means the shortage is sometimes gone on arrival),
+losing streaks of 5 trips happen, and most traders at some point lose
+30–60% of their net worth from its peak. Yet no trader ever goes bankrupt
+(`viability.test.ts` enforces this), because losses are structurally
+prevented from compounding:
+
+1. **Losses are capped at the stake, and the stake is capped by current
+   wealth.** No debt, no leverage: a trade can only lose what was paid for
+   the cargo, and a poorer trader automatically places smaller bets. With
+   positive expected value per trip, battered traders shrink, then recover.
+2. **No fixed burn rate.** An idle ship costs nothing, so a trader that
+   just took a beating can wait for a fat margin instead of being forced
+   into marginal trades by ticking upkeep.
+3. **No forced-liquidation haircut.** The only "forced" sale is selling
+   your cargo at the destination you chose, at normal market prices.
+4. **No speculative buying.** A trader only buys cargo against a route it
+   believes profitable at departure; there is no inventory held in hope of
+   a future buyer.
+
+The first attempt's constant trader bleed-out (which then demanded
+replenishment spawns, which broke credit conservation, which demanded
+treasuries...) came from violating 2 and 3: always-on operating costs plus
+a forced-liquidation discount turned ordinary bad luck into death spirals.
+If trader turnover is ever *wanted* for game texture, reintroduce upkeep
+deliberately — it is the bankruptcy dial — together with endogenous entry,
+and let `viability.test.ts` bound the churn rate.
+
 ## Project layout
 
 | File | Purpose |
