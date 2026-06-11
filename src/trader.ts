@@ -194,6 +194,9 @@ export class Trader {
 
   private depart(tick: number, from: StarSystem, to: StarSystem, cfg: TraderConfig): void {
     const dist = from.distanceTo(to);
+    // Travel cost is deducted unchecked: a broke trader may run a small
+    // overdraft to reposition rather than be stranded forever in a dead
+    // market. viability.test.ts bounds how deep this can ever go.
     this.credits -= dist * cfg.costPerDist;
     this.travel = {
       destId: to.id,

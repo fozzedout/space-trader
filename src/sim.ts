@@ -19,6 +19,12 @@ export interface Metrics {
   tradersInTransit: number;
   /** Mean staleness (ticks) of traders' market knowledge across all systems. */
   avgInfoAgeTicks: number;
+  /** Traders with negative credits. Transient small overdrafts (travel
+   * costs while repositioning) are tolerable; a persistent count here
+   * means the economy can't support its traders. */
+  tradersInsolvent: number;
+  /** Poorest trader's credits — the canary for economy viability. */
+  minTraderCredits: number;
 }
 
 /**
@@ -129,6 +135,8 @@ export class Simulation {
           ? 0
           : traders.reduce((acc, t) => acc + t.board.avgAge(this.tick, systemIds), 0) /
             traders.length,
+      tradersInsolvent: traders.filter((t) => t.credits < 0).length,
+      minTraderCredits: traders.reduce((min, t) => Math.min(min, t.credits), Infinity),
     };
   }
 

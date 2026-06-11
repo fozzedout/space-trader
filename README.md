@@ -18,7 +18,7 @@ stabilizers.
 
 ```bash
 npm install
-npm test        # type-check + 28 tests, incl. disaster-recovery scenarios
+npm test        # type-check + 30 tests, incl. disaster-recovery & trader viability
 npm run sim     # headless demo: warmup → blight + pirate raid → recovery
 ```
 
@@ -84,7 +84,7 @@ informed than the market access they physically have.
 | `src/galaxy.ts` | Deterministic, needs-consistent galaxy generation |
 | `src/sim.ts` | Orchestrator: tick order, external events (shocks, raids), metrics, state hash |
 | `src/cli.ts` | Headless demo scenario |
-| `src/*.test.ts` | Including `self-balance.test.ts` — the scenario tests that prove the premise |
+| `src/*.test.ts` | `self-balance.test.ts` proves the premise; `viability.test.ts` proves traders stay in business |
 
 ## Invariants (do not break these)
 

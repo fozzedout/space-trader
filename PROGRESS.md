@@ -26,6 +26,7 @@ here before starting.
 | Balance invariant tests (DAG, value chain, aggregate surplus) | done | `src/balance.test.ts` |
 | Headless demo CLI | done | `src/cli.ts` |
 | Imperfect information: per-ship InfoBoards, hub relay network, shipping manifests | done | `src/info.ts`, `src/trader.ts` |
+| Trader viability metrics (insolvency, poorest trader) + failure-rate tests | done | `src/sim.ts`, `src/viability.test.ts` |
 
 ## Next (one at a time, each with a scenario test)
 
