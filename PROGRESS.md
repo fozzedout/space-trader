@@ -30,12 +30,20 @@ here before starting.
 
 ## Next (one at a time, each with a scenario test)
 
+Negative elements (costs, risks) land in this order, each gated by
+`viability.test.ts`. Principle: **activity-proportional costs (per trip)
+are safe; time-proportional costs (per tick) are the bankruptcy dial** —
+they're regressive and remove the wait-to-recover valve, which is what
+caused the first attempt's trader bleed-out.
+
 | Task | Status | Notes |
 |------|--------|-------|
-| Player ships: join the sim as a ship using the same market and InfoBoard APIs | not started | Players move prices and learn news exactly like NPCs |
+| Physical fuel: ships buy fuel from the local market at departure | not started | Per-trip cost (safe); transport network becomes subject to its own economics; test that fuel-starved regions recover via fuel imports |
+| Pirates preying on ships in transit (cargo loss) | not started | Stake-proportional (safe); route risk becomes a price factor; viability suite bounds tolerable predation |
+| Player ships: join the sim using the same market and InfoBoard APIs | not started | Players move prices and learn news exactly like NPCs |
 | Staleness-discounted route scoring (confidence decay on old observations) | not started | Traders currently trust old snapshots at face value |
-| Persistent pirate agents preying on routes | not started | Security as an emergent price factor; test recovery still holds |
-| Credit conservation: system treasuries as counterparties | not started | Only if trader wealth inflation becomes a problem |
+| Upkeep ("air tax") + endogenous trader entry/exit | not started | ONLY if turnover is wanted as game texture; deliberate churn, bounded by viability tests — never a side effect again |
+| Credit conservation: system treasuries as counterparties | not started | Inflation is ~2x/1000 ticks; fuel + upkeep are credit sinks that reduce it first |
 | Larger-scale run (48+ systems, 500+ traders) perf check | not started | Keep tick cost roughly linear |
 | HTTP server + live market viewer | not started | Only once the headless sim is worth watching |
 
