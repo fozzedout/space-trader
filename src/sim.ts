@@ -23,8 +23,13 @@ export interface Metrics {
    * costs while repositioning) are tolerable; a persistent count here
    * means the economy can't support its traders. */
   tradersInsolvent: number;
-  /** Poorest trader's credits — the canary for economy viability. */
+  /** Poorest active trader's credits — the canary for economy viability. */
   minTraderCredits: number;
+  /** Outstanding station-bank debt across the fleet. */
+  totalDebt: number;
+  tradersIndebted: number;
+  /** Ships seized by banks after loan default (lifetime count). */
+  tradersSeized: number;
 }
 
 /**
@@ -124,7 +129,7 @@ export class Simulation {
       };
     }
     const systemIds = this.galaxy.systems.map((s) => s.id);
-    const traders = this.galaxy.traders;
+    const traders = this.galaxy.traders.filter((t) => t.active);
     return {
       tick: this.tick,
       goods,
@@ -137,6 +142,9 @@ export class Simulation {
             traders.length,
       tradersInsolvent: traders.filter((t) => t.credits < 0).length,
       minTraderCredits: traders.reduce((min, t) => Math.min(min, t.credits), Infinity),
+      totalDebt: traders.reduce((acc, t) => acc + (t.loan?.principal ?? 0), 0),
+      tradersIndebted: traders.filter((t) => t.loan !== null).length,
+      tradersSeized: this.galaxy.traders.filter((t) => !t.active).length,
     };
   }
 
@@ -152,7 +160,9 @@ export class Simulation {
       parts.push(
         `${trader.locationId}:${trader.credits.toFixed(6)}:${trader.cargo?.good ?? "-"}:${
           trader.cargo?.qty ?? 0
-        }:${trader.travel?.destId ?? "-"}`,
+        }:${trader.travel?.destId ?? "-"}:${trader.loan?.principal.toFixed(6) ?? "-"}:${
+          trader.equipment.scoop ? "s" : ""
+        }${trader.equipment.shredder ? "r" : ""}:${trader.active ? 1 : 0}`,
       );
     }
     return parts.join("|");

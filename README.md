@@ -18,7 +18,7 @@ stabilizers.
 
 ```bash
 npm install
-npm test        # type-check + 33 tests, incl. disaster-recovery & trader viability
+npm test        # type-check + 37 tests, incl. disaster-recovery & trader viability
 npm run sim     # headless demo: warmup → blight + pirate raid → recovery
 ```
 
@@ -60,6 +60,35 @@ inside (`fuel.test.ts` proves both). Traders also make two-leg plans
 ("fly empty to where the board says goods are cheap, buy, deliver"), which
 is how remote gluts get tapped instead of rotting behind storage caps.
 
+## Equipment and the station bank
+
+Ships start bare and outfit themselves at stations. Gear is assembled from
+**real parts bought out of the local market** (machinery + electronics), so
+outfitting is demand on the goods economy and gear is cheap where machinery
+is glutted. The scoop enables fuel skimming; the asteroid shredder grinds
+local rock into ore — both are capital-free local work.
+
+Station banks lend **against the ship as collateral** (loan-to-value cap).
+Two intended uses, both exercised by NPCs and available to players:
+
+- **Outfitting from rock bottom**: a broke trader borrows to buy a scoop
+  and works the loan off locally. Banks will even refinance an existing
+  loan to fund gear, because the gear adds collateral and creates the very
+  income that services the debt.
+- **Leverage on good trades**: when a trade is bigger than cash on hand,
+  borrow the difference — but borrowed trades must clear **double** the
+  usual margin (thin leveraged bets are a treadmill that never builds
+  equity), and interest accrues per tick, in transit or not.
+
+Debt is the economy's one deliberately *time-based* cost: it pressures
+borrowers to work without taxing the debt-free. Debtor discipline is built
+in: repayment comes before new plans, trades must beat the ship's own
+harvesting income (no dust trades), debtors with working gear don't drift,
+and when the term runs short they park and grind until clear. Default is
+real — the bank liquidates cargo, strips gear, and seizes the ship
+(`loans.test.ts`); the viability suite requires zero seizures in ordinary
+play, including the disaster marathon.
+
 ## Information model (nobody is omniscient)
 
 Ships don't see live remote markets. Each ship has an **InfoBoard**: a
@@ -96,9 +125,11 @@ losing streaks of 5 trips happen, and most traders at some point lose
 prevented from compounding:
 
 1. **Losses are capped at the stake, and the stake is capped by current
-   wealth.** No debt, no leverage: a trade can only lose what was paid for
-   the cargo, and a poorer trader automatically places smaller bets. With
-   positive expected value per trip, battered traders shrink, then recover.
+   wealth.** A trade can only lose what was paid for the cargo, and a
+   poorer trader automatically places smaller bets. With positive expected
+   value per trip, battered traders shrink, then recover. (Bank leverage
+   is the deliberate, bounded exception — collateral-capped, and borrowed
+   trades must clear double margin; see the station bank section.)
 2. **No fixed burn rate.** An idle ship costs nothing, so a trader that
    just took a beating can wait for a fat margin instead of being forced
    into marginal trades by ticking upkeep.
@@ -124,7 +155,8 @@ and let `viability.test.ts` bound the churn rate.
 | `src/market.ts` | Per-system per-good market: pure price function, midpoint trade execution |
 | `src/system.ts` | Star system tick: input-limited production, consumption, storage caps, shocks |
 | `src/info.ts` | Information model: per-ship InfoBoards, hub relay network, shipping manifests |
-| `src/trader.ts` | NPC trader: route evaluation on observed (not live) prices, load sizing, travel |
+| `src/equipment.ts` | Ship gear (scoop, shredder) assembled from real parts at stations |
+| `src/trader.ts` | NPC trader: route evaluation on observed (not live) prices, loans, harvesting, travel |
 | `src/galaxy.ts` | Deterministic, needs-consistent galaxy generation |
 | `src/sim.ts` | Orchestrator: tick order, external events (shocks, raids), metrics, state hash |
 | `src/cli.ts` | Headless demo scenario |

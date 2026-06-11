@@ -1,3 +1,4 @@
+import { EQUIPMENT, buyEquipment, equipmentQuote, type EquipmentId } from "./equipment.js";
 import { GOOD_IDS, type GoodId } from "./goods.js";
 import { HubNetwork, InfoBoard, takeSnapshot } from "./info.js";
 import type { Rng } from "./rng.js";
@@ -10,8 +11,10 @@ export interface TraderConfig {
   costPerDist: number;
   /** Fuel units burned per unit of distance, bought at the origin market. */
   fuelPerDist: number;
-  /** Fuel units a ship's scoop can skim from the star per idle tick. */
+  /** Fuel units a scoop can skim from the star per idle tick. */
   harvestRate: number;
+  /** Ore units a shredder can grind from asteroids per idle tick. */
+  oreHarvestRate: number;
   /** Minimum profit as a fraction of purchase cost to accept a route. */
   minMarginFrac: number;
   /** After this many idle ticks, relocate to a random system. */
@@ -20,6 +23,34 @@ export interface TraderConfig {
   originReserveFrac: number;
   /** When relocating idle, probability of heading to a hub for fresh news. */
   hubRelocateBias: number;
+  /** Interest per tick on outstanding loan balance (the debt clock). */
+  loanRatePerTick: number;
+  /** Ticks until an unpaid loan defaults and the bank seizes the ship. */
+  loanTermTicks: number;
+  /** Maximum loan as a fraction of ship value (the collateral). */
+  loanToValue: number;
+  /** Hull collateral value per unit of cargo capacity. */
+  shipValuePerCapacity: number;
+  /** Cash kept on hand; everything above it goes to loan repayment. */
+  repayBuffer: number;
+  /** Extra borrowed on top of exact need, to cover early interest. */
+  borrowCushion: number;
+  /** Buy a shredder (cash) when credits exceed this multiple of its cost. */
+  shredderWealthMult: number;
+  /**
+   * Margin multiplier required on trades made with borrowed money.
+   * Betting the bank's credits at the ordinary margin is a treadmill:
+   * thin leveraged bets churn (~30% of trips lose) and equity never
+   * builds. Borrowed trades must be clearly good deals.
+   */
+  leveragedMarginMult: number;
+  /**
+   * With this many ticks left on the loan term, a geared debtor stops
+   * trading and grinds the local system until the loan is cleared —
+   * harvest income is slow but certain, trading is not, and default
+   * costs the ship.
+   */
+  emergencyGrindTicks: number;
 }
 
 export const DEFAULT_TRADER_CONFIG: TraderConfig = {
@@ -27,10 +58,20 @@ export const DEFAULT_TRADER_CONFIG: TraderConfig = {
   costPerDist: 0.3,
   fuelPerDist: 0.015,
   harvestRate: 0.5,
+  oreHarvestRate: 0.4,
   minMarginFrac: 0.05,
   idleRelocateAfter: 8,
   originReserveFrac: 0.4,
   hubRelocateBias: 0.5,
+  loanRatePerTick: 0.002,
+  loanTermTicks: 250,
+  loanToValue: 0.6,
+  shipValuePerCapacity: 40,
+  repayBuffer: 600,
+  borrowCushion: 50,
+  shredderWealthMult: 3,
+  leveragedMarginMult: 2,
+  emergencyGrindTicks: 150,
 };
 
 interface Cargo {
@@ -44,13 +85,32 @@ interface Travel {
   arrivalTick: number;
 }
 
+/** A station bank loan. The ship itself is the collateral. */
+export interface Loan {
+  principal: number;
+  lenderSystemId: number;
+  dueTick: number;
+}
+
+interface Route {
+  good: GoodId;
+  qty: number;
+  dest: StarSystem;
+  score: number;
+  cost: number;
+  tripCost: number;
+  travelTicks: number;
+  profit: number;
+}
+
 /**
  * An NPC trader. Pure profit-seeker: buys where goods are cheap (surplus),
  * sells where it BELIEVES they're dear (shortage). Belief comes from its
  * InfoBoard — personal observations plus hub network news — never from
- * live remote state. Player ships get exactly the same information
- * mechanics. The aggregate effect of many of these is the self-balancing
- * distribution network — there is no central coordinator.
+ * live remote state. Player ships get exactly the same information,
+ * equipment, and banking mechanics. The aggregate effect of many of these
+ * is the self-balancing distribution network — there is no central
+ * coordinator.
  */
 export class Trader {
   readonly id: number;
@@ -62,17 +122,41 @@ export class Trader {
   idleTicks = 0;
   /** What this ship knows about the galaxy's markets. */
   readonly board = new InfoBoard();
+  /** Fitted gear. Ships start bare and outfit themselves at stations. */
+  equipment: Record<EquipmentId, boolean> = { scoop: false, shredder: false };
+  /** Outstanding station-bank loan, if any (one at a time; ship is collateral). */
+  loan: Loan | null = null;
+  /** False once the bank has seized the ship (loan default). */
+  active = true;
 
   /** Lifetime diagnostics. */
   tripsCompleted = 0;
   totalProfit = 0;
   totalHarvested = 0;
+  loansTaken = 0;
+  totalBorrowed = 0;
+  totalRepaid = 0;
+  interestAccrued = 0;
 
   constructor(opts: { id: number; credits: number; capacity: number; locationId: number }) {
     this.id = opts.id;
     this.credits = opts.credits;
     this.capacity = opts.capacity;
     this.locationId = opts.locationId;
+  }
+
+  /** Collateral: hull plus fitted gear at nominal value. */
+  shipValue(cfg: TraderConfig): number {
+    let value = this.capacity * cfg.shipValuePerCapacity;
+    for (const [id, owned] of Object.entries(this.equipment) as [EquipmentId, boolean][]) {
+      if (owned) value += EQUIPMENT[id].collateralValue;
+    }
+    return value;
+  }
+
+  /** How much the bank will still lend (one loan at a time). */
+  borrowCapacity(cfg: TraderConfig): number {
+    return this.loan ? 0 : this.shipValue(cfg) * cfg.loanToValue;
   }
 
   tick(
@@ -82,11 +166,40 @@ export class Trader {
     rng: Rng,
     hubNet: HubNetwork,
   ): void {
+    if (!this.active) return;
+
+    // The debt clock runs everywhere, including in transit. Debt is the
+    // one deliberately time-based cost in the economy: it pressures
+    // borrowers to work, without taxing the debt-free.
+    if (this.loan) {
+      const interest = this.loan.principal * cfg.loanRatePerTick;
+      this.loan.principal += interest;
+      this.interestAccrued += interest;
+    }
+
     if (this.travel) {
       if (tick < this.travel.arrivalTick) return;
       this.arrive(systems);
     }
-    this.plan(tick, systems, cfg, rng, hubNet);
+
+    const here = this.systemById(systems, this.locationId);
+
+    // Docked with an overdue loan: the bank forecloses. Cargo is
+    // liquidated into the local market, and the ship — the collateral —
+    // is seized. The trader is out of the game.
+    if (this.loan && tick >= this.loan.dueTick && this.loan.principal > 0) {
+      if (this.cargo) {
+        here.markets[this.cargo.good].executeSell(this.cargo.qty);
+        this.cargo = null;
+      }
+      this.credits = 0;
+      this.equipment = { scoop: false, shredder: false };
+      this.loan = null;
+      this.active = false;
+      return;
+    }
+
+    this.plan(tick, here, systems, cfg, rng, hubNet);
   }
 
   private arrive(systems: StarSystem[]): void {
@@ -105,21 +218,79 @@ export class Trader {
 
   private plan(
     tick: number,
+    here: StarSystem,
     systems: StarSystem[],
     cfg: TraderConfig,
     rng: Rng,
     hubNet: HubNetwork,
   ): void {
-    const here = this.systemById(systems, this.locationId);
-
     // Being docked here means seeing this market live; docking at a hub
     // additionally swaps news with the whole relay network.
     this.board.record(here.id, takeSnapshot(here, tick));
     if (here.isHub) this.board.syncWith(hubNet.board);
 
-    const best = this.bestRouteFrom(here, here, 0, systems, cfg, hubNet);
+    // Paying the loan down comes before everything else: interest ticks,
+    // and a cleared loan frees the collateral for the next opportunity.
+    this.repay(cfg);
+
+    // Deadline pressure: with the term running out, a geared debtor
+    // parks and works the local system until the loan is cleared. Slow
+    // and certain beats fast and risky when default costs the ship.
+    if (
+      this.loan &&
+      this.loan.dueTick - tick <= cfg.emergencyGrindTicks &&
+      (this.equipment.scoop || this.equipment.shredder)
+    ) {
+      this.harvest(here, cfg);
+      // A grinding ship isn't going anywhere: it doesn't need trip
+      // capital, so nearly every credit goes straight to the bank.
+      this.repay(cfg, cfg.borrowCushion);
+      return;
+    }
+
+    // Opportunity cost of leaving: what the ship's own gear earns per
+    // tick by staying put and harvesting. Any trade must beat this —
+    // otherwise small-stake "dust" trades whose trip costs eat the cargo
+    // profit slowly bleed a poor trader to death (the pre-loan-era
+    // bleed-out, rediscovered at the bottom of the wealth ladder).
+    const harvestBaseline = this.harvestValuePerTick(here, cfg);
+
+    // Best trade on cash...
+    let best = this.bestRouteFrom(here, here, 0, this.credits, systems, cfg, hubNet);
+    if (best && best.score <= harvestBaseline) best = null;
+
+    // ...and, if the bank would lend, the best leveraged trade. Borrowing
+    // is only worth it if the bigger trade still clears the margin after
+    // the estimated interest on the borrowed amount.
+    const headroom = this.borrowCapacity(cfg);
+    let borrowAmount = 0;
+    if (headroom > 0) {
+      const lev = this.bestRouteFrom(
+        here,
+        here,
+        0,
+        this.credits + headroom,
+        systems,
+        cfg,
+        hubNet,
+      );
+      if (lev && lev.score > harvestBaseline && (!best || lev.score > best.score)) {
+        const needed = lev.cost + lev.tripCost + cfg.borrowCushion - this.credits;
+        if (needed <= 0) {
+          best = lev;
+        } else {
+          const interestEst = needed * cfg.loanRatePerTick * (lev.travelTicks + 15);
+          const requiredMargin = lev.cost * cfg.minMarginFrac * cfg.leveragedMarginMult;
+          if (lev.profit - interestEst >= requiredMargin) {
+            best = lev;
+            borrowAmount = Math.min(needed, headroom);
+          }
+        }
+      }
+    }
 
     if (best) {
+      if (borrowAmount > 0) this.borrow(borrowAmount, tick, here, cfg);
       const market = here.markets[best.good];
       const cost = market.executeBuy(best.qty);
       this.credits -= cost;
@@ -138,11 +309,15 @@ export class Trader {
       return;
     }
 
-    // Nothing profitable from here. Look for a two-leg plan: fly empty to
-    // a system the board says has cheap surplus, buy there, deliver
-    // onward. This is how remote gluts get tapped instead of rotting
-    // behind storage caps (out-of-the-way exporters would otherwise only
-    // be visited by chance).
+    // No trade worth making. Outfit for local work instead: a scoop pays
+    // for itself wherever fuel sells, and the station bank will lend
+    // against the ship to a trader too broke to buy one outright — the
+    // intended way back up from rock bottom.
+    if (this.maybeBuyEquipment(tick, here, cfg)) return;
+
+    // Look for a two-leg plan: fly empty to a system the board says has
+    // cheap surplus, buy there, deliver onward. This is how remote gluts
+    // get tapped instead of rotting behind storage caps.
     const fuelMarket = here.markets.fuel;
     const canFuel = (s: StarSystem) =>
       fuelMarket.inventory >= here.distanceTo(s) * cfg.fuelPerDist;
@@ -150,8 +325,12 @@ export class Trader {
     for (const origin of systems) {
       if (origin.id === here.id || !canFuel(origin)) continue;
       const firstLeg = Math.max(1, Math.ceil(here.distanceTo(origin) / cfg.speed));
-      const plan = this.bestRouteFrom(here, origin, firstLeg, systems, cfg, hubNet);
-      if (plan && (!reposition || plan.score > reposition.score)) {
+      const plan = this.bestRouteFrom(here, origin, firstLeg, this.credits, systems, cfg, hubNet);
+      if (
+        plan &&
+        plan.score > harvestBaseline &&
+        (!reposition || plan.score > reposition.score)
+      ) {
         reposition = { origin, score: plan.score };
       }
     }
@@ -164,8 +343,16 @@ export class Trader {
     // Not even a repositioning plan (as far as this ship knows): after a
     // while, drift — preferring a hub, where the latest news is — so stuck
     // traders refresh stale boards instead of idling forever.
+    // EXCEPT while indebted with working gear: relocation costs roughly
+    // what harvesting earns, so a debtor that keeps drifting can never
+    // clear its loan (and loses the ship). In debt, stay put and grind.
+    const canWorkLocally = this.equipment.scoop || this.equipment.shredder;
     this.idleTicks += 1;
-    if (this.idleTicks >= cfg.idleRelocateAfter && systems.length > 1) {
+    if (
+      this.idleTicks >= cfg.idleRelocateAfter &&
+      systems.length > 1 &&
+      !(this.loan && canWorkLocally)
+    ) {
       const hubs = systems.filter((s) => s.isHub && s.id !== here.id && canFuel(s));
       const reachable = systems.filter((s) => s.id !== here.id && canFuel(s));
       let dest: StarSystem | null = null;
@@ -186,27 +373,110 @@ export class Trader {
     this.harvest(here, cfg);
   }
 
+  /** Take a station-bank loan against the ship. */
+  private borrow(amount: number, tick: number, here: StarSystem, cfg: TraderConfig): void {
+    this.credits += amount;
+    this.loan = {
+      principal: amount,
+      lenderSystemId: here.id,
+      dueTick: tick + cfg.loanTermTicks,
+    };
+    this.loansTaken += 1;
+    this.totalBorrowed += amount;
+  }
+
   /**
-   * Best (good, destination) trade starting at `origin`, scored as profit
-   * per tick including `leadTicks` spent getting to the origin first.
-   * When `origin` is not the ship's current system, origin state comes
-   * from the InfoBoard — the plan is a bet on remembered prices.
+   * Refinance: extend an existing loan to buy income-producing gear. The
+   * bank only does this because the gear adds collateral AND creates the
+   * income that services the debt — it's the escape hatch from the one
+   * otherwise-doomed state (in debt, no cash, no gear, no income).
+   */
+  private topUp(amount: number, tick: number, here: StarSystem, cfg: TraderConfig): void {
+    if (!this.loan) {
+      this.borrow(amount, tick, here, cfg);
+      return;
+    }
+    this.credits += amount;
+    this.loan.principal += amount;
+    this.loan.dueTick = tick + cfg.loanTermTicks; // refinanced: term restarts
+    this.loan.lenderSystemId = here.id;
+    this.totalBorrowed += amount;
+  }
+
+  /** Pay the loan down with everything above the operating buffer. */
+  private repay(cfg: TraderConfig, buffer = cfg.repayBuffer): void {
+    if (!this.loan) return;
+    const payment = Math.min(this.loan.principal, this.credits - buffer);
+    if (payment <= 0) return;
+    this.credits -= payment;
+    this.loan.principal -= payment;
+    this.totalRepaid += payment;
+    if (this.loan.principal <= 0.01) this.loan = null;
+  }
+
+  /**
+   * Outfit at the station when idle: a scoop first (borrowing against the
+   * ship if needed — gear bought on credit and worked off locally is the
+   * recovery path for a broke trader), then a shredder once wealthy.
+   */
+  private maybeBuyEquipment(tick: number, here: StarSystem, cfg: TraderConfig): boolean {
+    if (!this.equipment.scoop) {
+      const quote = equipmentQuote(here, "scoop");
+      if (quote !== null) {
+        const shortfall = quote + cfg.borrowCushion - this.credits;
+        if (shortfall <= 0) {
+          this.credits -= buyEquipment(here, "scoop");
+          this.equipment.scoop = true;
+          return true;
+        }
+        // Borrow for it — including topping up an existing loan, as long
+        // as total debt stays within the collateral value of the ship
+        // WITH the scoop fitted (the gear is part of what's pledged).
+        const maxDebt =
+          (this.shipValue(cfg) + EQUIPMENT.scoop.collateralValue) * cfg.loanToValue;
+        if ((this.loan?.principal ?? 0) + shortfall <= maxDebt) {
+          this.topUp(shortfall, tick, here, cfg);
+          this.credits -= buyEquipment(here, "scoop");
+          this.equipment.scoop = true;
+          return true;
+        }
+      }
+      return false;
+    }
+    if (!this.equipment.shredder) {
+      const quote = equipmentQuote(here, "shredder");
+      if (quote !== null && this.credits > quote * cfg.shredderWealthMult) {
+        this.credits -= buyEquipment(here, "shredder");
+        this.equipment.shredder = true;
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Best (good, destination) trade starting at `origin` within `budget`,
+   * scored as profit per tick including `leadTicks` spent getting to the
+   * origin first. When `origin` is not the ship's current system, origin
+   * state comes from the InfoBoard — the plan is a bet on remembered
+   * prices.
    */
   private bestRouteFrom(
     here: StarSystem,
     origin: StarSystem,
     leadTicks: number,
+    budget: number,
     systems: StarSystem[],
     cfg: TraderConfig,
     hubNet: HubNetwork,
-  ): { good: GoodId; qty: number; dest: StarSystem; score: number } | null {
+  ): Route | null {
     const isLive = origin.id === here.id;
     const originSnap = this.board.get(origin.id);
     if (!isLive && !originSnap) return null;
     const originInv = (good: GoodId): number =>
       isLive ? origin.markets[good].inventory : originSnap!.inventories[good];
 
-    let best: { good: GoodId; qty: number; dest: StarSystem; score: number } | null = null;
+    let best: Route | null = null;
 
     for (const good of GOOD_IDS) {
       const market = origin.markets[good];
@@ -214,7 +484,7 @@ export class Trader {
       const available = Math.floor(inv - market.targetStock * cfg.originReserveFrac);
       if (available < 1) continue;
       const priceNow = market.priceAt(inv);
-      const maxLoad = Math.min(this.capacity, available, Math.floor(this.credits / priceNow));
+      const maxLoad = Math.min(this.capacity, available, Math.floor(budget / priceNow));
       if (maxLoad < 1) continue;
 
       for (const dest of systems) {
@@ -248,28 +518,55 @@ export class Trader {
         if (qty < 1) continue;
 
         const cost = market.priceAt(inv - qty / 2) * qty;
-        if (cost > this.credits) continue;
+        if (cost > budget) continue;
         const travelTicks = Math.max(1, Math.ceil(dist / cfg.speed));
         const revenue = destMarket.priceAt(knownInv + qty / 2) * qty;
-        const profit = revenue - cost - dist * cfg.costPerDist - fuelCost;
+        const tripCost = dist * cfg.costPerDist + fuelCost;
+        const profit = revenue - cost - tripCost;
         if (profit < cost * cfg.minMarginFrac) continue;
         const score = profit / (leadTicks + travelTicks);
         if (!best || score > best.score) {
-          best = { good, qty, dest, score };
+          best = { good, qty, dest, score, cost, tripCost, travelTicks, profit };
         }
       }
     }
     return best;
   }
 
+  /** Credits per tick the ship's gear would earn harvesting here now. */
+  private harvestValuePerTick(here: StarSystem, cfg: TraderConfig): number {
+    let value = 0;
+    if (this.equipment.scoop) {
+      value = Math.max(value, here.markets.fuel.price * cfg.harvestRate);
+    }
+    if (this.equipment.shredder) {
+      value = Math.max(value, here.markets.ore.price * cfg.oreHarvestRate);
+    }
+    return value;
+  }
+
   /**
-   * Skim fuel from the local star and sell it to the station. Slow, but
-   * needs no capital and no fuel — the income floor for a trader down on
-   * its luck, and the bootstrap that refuels a fuel-starved port.
+   * Work the local system with fitted gear: skim the star for fuel
+   * (scoop) or grind asteroids into ore (shredder), selling into the
+   * local market. Slow, capital-free income — the floor for a trader
+   * down on its luck, and the bootstrap that restocks a starved port.
    */
   private harvest(here: StarSystem, cfg: TraderConfig): void {
-    this.credits += here.markets.fuel.executeSell(cfg.harvestRate);
-    this.totalHarvested += cfg.harvestRate;
+    const options: { good: GoodId; rate: number }[] = [];
+    if (this.equipment.scoop) options.push({ good: "fuel", rate: cfg.harvestRate });
+    if (this.equipment.shredder) options.push({ good: "ore", rate: cfg.oreHarvestRate });
+    let pick: { good: GoodId; rate: number } | null = null;
+    let pickValue = 0;
+    for (const opt of options) {
+      const value = here.markets[opt.good].price * opt.rate;
+      if (value > pickValue) {
+        pick = opt;
+        pickValue = value;
+      }
+    }
+    if (!pick) return; // no gear fitted: truly idle
+    this.credits += here.markets[pick.good].executeSell(pick.rate);
+    this.totalHarvested += pick.rate;
   }
 
   private depart(tick: number, from: StarSystem, to: StarSystem, cfg: TraderConfig): void {

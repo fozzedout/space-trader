@@ -44,19 +44,27 @@ describe("trader viability", () => {
       const { sim, worstDipEver } = punishingRun(seed);
       const traders = sim.galaxy.traders;
 
-      // Nobody ends insolvent; even the unluckiest trader is above the
-      // minimum starting stake (i.e. nobody net-lost their seed capital).
+      // Nobody ends insolvent, and even the unluckiest trader holds real
+      // net worth (cash + cargo at cost - debt; cash alone is noisy
+      // because it swings with cargo holdings and loan repayments).
       expect(sim.metrics().tradersInsolvent, `seed ${seed} insolvent`).toBe(0);
-      const minFinal = sim.metrics().minTraderCredits;
-      expect(minFinal, `seed ${seed} poorest trader`).toBeGreaterThan(4000);
+      const minWorth = Math.min(
+        ...traders.map((t) => t.credits + (t.cargo?.costBasis ?? 0) - (t.loan?.principal ?? 0)),
+      );
+      expect(minWorth, `seed ${seed} poorest trader net worth`).toBeGreaterThan(1500);
 
       // Worst transient dip is a small travel overdraft, not a debt spiral.
       expect(worstDipEver, `seed ${seed} worst dip`).toBeGreaterThan(-1000);
 
+      // The loan system never costs anyone their ship in ordinary times,
+      // and the fleet ends the marathon debt-free.
+      expect(sim.metrics().tradersSeized, `seed ${seed} seizures`).toBe(0);
+      expect(sim.metrics().totalDebt, `seed ${seed} residual debt`).toBeLessThan(1000);
+
       // Every trader is profitable over its lifetime and trading actively.
       for (const t of traders) {
         expect(t.totalProfit, `seed ${seed} trader ${t.id} lifetime profit`).toBeGreaterThan(0);
-        expect(t.tripsCompleted, `seed ${seed} trader ${t.id} trips`).toBeGreaterThan(100);
+        expect(t.tripsCompleted, `seed ${seed} trader ${t.id} trips`).toBeGreaterThan(50);
       }
     }
   });

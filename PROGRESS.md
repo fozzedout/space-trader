@@ -30,6 +30,8 @@ here before starting.
 | Physical fuel: star-skimmed primary good, bought per departure | done | `src/goods.ts`, `src/trader.ts`, `src/fuel.test.ts` |
 | Fuel scoop: capital-free harvesting as income floor + port bootstrap | done | `src/trader.ts`, `src/fuel.test.ts` |
 | Opportunity-driven repositioning (two-leg plans tap remote gluts) | done | `src/trader.ts` |
+| Ship equipment from real parts: fuel scoop + asteroid shredder | done | `src/equipment.ts`, `src/loans.test.ts` |
+| Station bank: collateral-capped loans, refinancing for gear, default = ship seized | done | `src/trader.ts`, `src/loans.test.ts` |
 
 ## Next (one at a time, each with a scenario test)
 
@@ -41,7 +43,6 @@ caused the first attempt's trader bleed-out.
 
 | Task | Status | Notes |
 |------|--------|-------|
-| Ship equipment system (scoop tiers, ore shredder for asteroid mining) | not started | Generalize the scoop: harvesting ore locally as a second work-local option; equipment as purchasable upgrades |
 | Pirates preying on ships in transit (cargo loss) | not started | Stake-proportional (safe); route risk becomes a price factor; viability suite bounds tolerable predation |
 | Player ships: join the sim using the same market and InfoBoard APIs | not started | Players move prices and learn news exactly like NPCs |
 | Staleness-discounted route scoring (confidence decay on old observations) | not started | Traders currently trust old snapshots at face value |

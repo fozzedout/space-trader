@@ -34,6 +34,9 @@ function printMetrics(label: string): void {
   console.log(
     `  trader credits: ${Math.round(m.totalTraderCredits).toLocaleString()} | in transit: ${m.tradersInTransit} | avg market news age: ${m.avgInfoAgeTicks.toFixed(0)} ticks`,
   );
+  console.log(
+    `  bank: ${Math.round(m.totalDebt).toLocaleString()} outstanding across ${m.tradersIndebted} loans | ships seized: ${m.tradersSeized}`,
+  );
 }
 
 sim.run(300);
