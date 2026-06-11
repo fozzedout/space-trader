@@ -18,10 +18,10 @@ stabilizers.
 
 ```bash
 npm install
-npm test        # type-check + 43 tests, incl. disaster-recovery & trader viability
+npm test        # type-check + 47 tests, incl. disaster-recovery & trader viability
 npm run sim     # headless demo: warmup → blight + pirate raid → recovery
-npm run play    # drive a player ship: Claude if ANTHROPIC_API_KEY is set,
-                # otherwise an offline heuristic agent
+npm run play    # LLM captains: LM Studio (local GPU) if LMSTUDIO_BASE_URL
+                # is set, Claude if ANTHROPIC_API_KEY, else a heuristic
 ```
 
 The demo output shows average price (as a multiple of base price) and
@@ -114,13 +114,40 @@ costs the tick, which is exactly the cost a human player would pay.
 
 The observation enforces **information symmetry**: the local market live,
 remote systems as dated hub-news snapshots (`newsAgeTicks`), shipping
-manifests only while docked at a hub. `src/llm-driver.ts` connects Claude
-to this loop (structured-output JSON actions; `npm run play` with
-`ANTHROPIC_API_KEY`, plus `SEED` / `DECISIONS` / `MODEL` / `EFFORT`) and
-ships an offline heuristic decider used as a baseline and in tests —
-`player.test.ts` proves the observation carries enough signal to trade
-profitably, and that a delinquent player loses their ship like anyone
-else.
+manifests only while docked at a hub. `player.test.ts` proves the
+observation carries enough signal to trade profitably, and that a
+delinquent player loses their ship like anyone else.
+
+### LLM captains and the voyage chronicle
+
+`src/llm-driver.ts` (`npm run play`) runs LLM-driven captains for long
+periods and journals everything they think and do — the journals are the
+story. Built for **local models via LM Studio** (free tokens, weeks-long
+runs):
+
+```bash
+LMSTUDIO_BASE_URL=http://localhost:1234/v1 \
+CAPTAINS="Mara Voss:qwen2.5-14b-instruct,Jax Teller:llama-3.1-8b" \
+TICKS=0 EVENTS=1 npm run play
+```
+
+- One ship per captain, each with its own model and persona; the model
+  writes an in-character captain's log line with every action, and
+  reasoning models' `<think>` text is captured into the journal too.
+- Journals land in `logs/<captain>-<seed>-<stamp>.jsonl` (tick, thinking,
+  log, action, result, net worth) — raw material for the chronicle.
+- Each decision includes the captain's last 8 log entries, so the story
+  (and strategy) carries memory between turns.
+- `EVENTS=1` rolls deterministic disasters (blights, mine collapses, fuel
+  blockades, war demand) every few hundred ticks into a world log —
+  weather for the narrative; captains only learn of it through markets
+  and hub news, like everyone else.
+- `TICKS=0` runs until Ctrl+C. Inference latency paces the game: captains
+  think, the world waits. Bad model output never crashes the run — it
+  becomes a waited tick with a "(lost in thought)" log line.
+- Claude is still available as a decider (`ANTHROPIC_API_KEY`, `MODEL`,
+  `EFFORT`) for shorter runs or guest-star captains, and the offline
+  heuristic remains the baseline.
 
 ## Information model (nobody is omniscient)
 

@@ -34,7 +34,7 @@ here before starting.
 | Station bank: collateral-capped loans, refinancing for gear, delinquency-based foreclosure | done | `src/trader.ts`, `src/loans.test.ts` |
 | Scale check: 96 systems / 480 traders benchmarked; economics hold, repositioning scan bounded | done | ~50ms/tick at 96 systems; debt confirmed as working capital (drains to 0) |
 | Player ships: observation/action API with information symmetry | done | `src/player.ts`, `src/player.test.ts` |
-| LLM driver: Claude (or offline heuristic) plays a ship | done | `src/llm-driver.ts`, `npm run play` |
+| LLM driver: LM Studio (local GPU) / Claude / heuristic captains with JSONL voyage journals, personas, rolling memory, story events | done | `src/llm-driver.ts`, `src/driver.test.ts`, `npm run play` |
 
 ## Next (one at a time, each with a scenario test)
 

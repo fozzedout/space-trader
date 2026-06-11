@@ -147,7 +147,7 @@ describe("player ships", () => {
       let guard = 0;
       while (sim.observe(id).you.inTransit && guard++ < 100) sim.step();
       if (!sim.observe(id).you.active) break;
-      const { action } = await heuristicDecider(sim.observe(id));
+      const { action } = await heuristicDecider(sim.observe(id), []);
       sim.act(id, action);
       sim.step();
     }
