@@ -1,60 +1,42 @@
 # Cursor Rules for Space Trader Project
 
-## Documentation Requirements
+## Read first
 
-**CRITICAL: Always keep API documentation updated**
+- `README.md` — architecture and the four invariants (no magic, determinism,
+  restartability, needs-consistency). Do not break them.
+- `REVIEW.md` — why the first attempt failed; avoid repeating it.
+- `PROGRESS.md` — roadmap. One task at a time, each with a scenario test.
 
-When modifying or adding API endpoints:
+## Hard rules
 
-1. **Update `src/api-docs.ts`** - This file contains comprehensive documentation for all endpoints that is displayed in the dev interface at `/dev`. Every endpoint must have:
-   - Method and path
-   - Clear description of what it does
-   - Parameters (path, query, or body)
-   - Request body structure (if applicable)
-   - Response structure with examples
-   - Notes about behavior, side effects, or important details
+- **No hidden stabilizers.** Only production, consumption, and ship trades
+  may change inventory or credits. Never add code that injects or "corrects"
+  stock to keep the economy alive — if it doesn't balance, the balance
+  numbers or trader behavior are wrong, and the fix belongs there.
+- **Determinism.** All randomness goes through the seeded `Rng` (`src/rng.ts`).
+  Same seed + same external events must produce a bit-identical `stateHash()`.
+- **Production chain stays a DAG** with input-free roots (food, ore).
+  `src/balance.test.ts` enforces this; keep it passing.
+- **Every feature lands with a scenario test** in the spirit of
+  `src/self-balance.test.ts`, proving the economy still self-balances.
 
-2. **Update the dev interface** - `src/local-server.ts` embeds the API documentation in the dev interface HTML. When `api-docs.ts` is updated, ensure the dev interface displays it correctly.
+## Code style
 
-3. **Add code comments** - Add JSDoc-style comments to endpoint handler functions explaining:
-   - What the endpoint does
-   - What parameters it expects
-   - What it returns
-   - Any side effects or important behavior
-
-4. **Update README.md** - Keep the API Endpoints section in README.md synchronized with the actual implementation.
-
-## Code Style
-
-- Use TypeScript with strict mode
-- **NEVER use the `any` type** - always use proper types, `unknown`, or create specific interfaces/types
-- Prefer explicit types over `any`
-- Add JSDoc comments for public functions and classes
-- Keep functions focused and single-purpose
-- Use descriptive variable and function names
+- TypeScript strict mode; never use `any`.
+- Keep functions focused; descriptive names.
+- Comments explain constraints and *why*, not what the next line does.
 
 ## Testing
 
-- Write tests for new features
-- **CRITICAL: Every crash scenario must have a test** - When fixing a crash or runtime error, immediately add a test that reproduces the crash scenario to prevent regression
-- Ensure existing tests pass before committing
-- Test local server (npm test)
+- `npm test` runs type-check + vitest. Keep it green.
+- Every crash fix gets a regression test.
 
-## File Organization
+## File layout
 
-- `src/api-docs.ts` - API documentation (must be kept updated)
-- `src/local-server.ts` - Local Node.js server entry point
-- `src/star-system.ts` - StarSystem Durable Object
-- `src/ship.ts` - Ship Durable Object
-- `src/types.ts` - TypeScript type definitions
-- `src/goods.ts` - Goods catalog and definitions
-- `src/deterministic-rng.ts` - Deterministic RNG implementation
-
-## Important Reminders
-
-- **Documentation is visible in the dev interface** - Users see it at `/dev`, so it must be accurate and helpful
-- **Local server only** - No Cloudflare Worker in this repo; `src/index.ts` does not exist
-- **Deterministic simulation** - All RNG must use deterministic seeds for reproducible results
-- **Non-canonical player actions** - Player trades are experimental and don't affect NPC simulation
-- **Crash prevention** - Every runtime crash or error must have a corresponding test case to prevent regression. When fixing a crash, add a test that reproduces the crash scenario before the fix, ensuring the fix prevents the crash.
-
+- `src/goods.ts` — goods catalog, production chain, role rates
+- `src/market.ts` — price formation and trade execution
+- `src/system.ts` — star system production/consumption tick
+- `src/trader.ts` — NPC trader decisions
+- `src/galaxy.ts` — deterministic galaxy generation
+- `src/sim.ts` — orchestrator, external events, metrics
+- `src/cli.ts` — headless demo (`npm run sim`)

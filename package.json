@@ -1,0 +1,26 @@
+{
+  "name": "space-trader",
+  "version": "0.2.0",
+  "description": "Self-balancing galactic trade economy simulation",
+  "type": "module",
+  "scripts": {
+    "sim": "tsx src/cli.ts",
+    "type-check": "tsc --noEmit",
+    "test": "npm run type-check && vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "npm run type-check && vitest run --coverage"
+  },
+  "keywords": [
+    "simulation",
+    "market",
+    "economy"
+  ],
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "@vitest/coverage-v8": "^1.6.0",
+    "tsx": "^4.7.0",
+    "typescript": "^5.3.3",
+    "vitest": "^1.6.0"
+  }
+}

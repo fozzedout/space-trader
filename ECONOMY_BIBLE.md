@@ -1,5 +1,13 @@
 # Space Trader Economy Bible (Expanded Goods & Supply Chain)
 
+> **STATUS: ARCHIVED DESIGN REFERENCE — not the current spec.**
+> This was the full-scope specification of the first attempt, which failed
+> (see `REVIEW.md` for the post-mortem). The simulation was rebuilt around a
+> much smaller proven core (`README.md`). Ideas here (contracts, info decay,
+> factions, world evolution, ...) remain good candidate extensions, but they
+> are adopted one at a time via `PROGRESS.md`, each with a scenario test —
+> never implemented wholesale from this document.
+
 This document defines the core economic model for the Space Trader simulation. It is the authoritative specification for galaxy generation, market dynamics, NPC behavior, and goods dependencies. The goal is emergent complexity from simple, deterministic rules while preserving system isolation and canonical trading.
 
 ---
