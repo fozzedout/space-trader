@@ -1,0 +1,38 @@
+{
+  "name": "@sto/original-baseline-rules",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Versioned Space Trader PalmOS baseline mechanics for STO Phase 0",
+  "type": "module",
+  "license": "GPL-2.0-or-later",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "src",
+    "test",
+    "docs",
+    "README.md",
+    "NOTICE.md",
+    "LICENSE",
+    "tsconfig.json"
+  ],
+  "sideEffects": false,
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "npm run build && node --test test/*.test.mjs",
+    "clean": "rm -rf dist dist-test"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.0"
+  }
+}

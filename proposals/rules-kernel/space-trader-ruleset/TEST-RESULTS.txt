@@ -1,0 +1,102 @@
+
+> @sto/original-baseline-rules@0.1.0 test
+> npm run build && node --test test/*.test.mjs
+
+
+> @sto/original-baseline-rules@0.1.0 build
+> tsc -p tsconfig.json
+
+TAP version 13
+# Subtest: authoritative table sizes are preserved
+ok 1 - authoritative table sizes are preserved
+  ---
+  duration_ms: 1.25141
+  type: 'test'
+  ...
+# Subtest: standard price uses integer baseline modifiers
+ok 2 - standard price uses integer baseline modifiers
+  ---
+  duration_ms: 0.280884
+  type: 'test'
+  ...
+# Subtest: arrival prices reproduce market, criminal intermediary and trader markup
+ok 3 - arrival prices reproduce market, criminal intermediary and trader markup
+  ---
+  duration_ms: 1.242566
+  type: 'test'
+  ...
+# Subtest: a system may buy a commodity it cannot produce
+ok 4 - a system may buy a commodity it cannot produce
+  ---
+  duration_ms: 0.169717
+  type: 'test'
+  ...
+# Subtest: quantity generation preserves source RNG draw order
+ok 5 - quantity generation preserves source RNG draw order
+  ---
+  duration_ms: 0.302617
+  type: 'test'
+  ...
+# Subtest: system status shuffle follows the original 15 percent transitions
+ok 6 - system status shuffle follows the original 15 percent transitions
+  ---
+  duration_ms: 0.161944
+  type: 'test'
+  ...
+# Subtest: effective skills use best crew member plus gadget bonuses
+ok 7 - effective skills use best crew member plus gadget bonuses
+  ---
+  duration_ms: 0.283578
+  type: 'test'
+  ...
+# Subtest: combat formulas are deterministic through injected RNG
+ok 8 - combat formulas are deterministic through injected RNG
+  ---
+  duration_ms: 0.226221
+  type: 'test'
+  ...
+# Subtest: equipment and ship purchase prices use original trader discounts
+ok 9 - equipment and ship purchase prices use original trader discounts
+  ---
+  duration_ms: 0.381606
+  type: 'test'
+  ...
+# Subtest: ship valuation preserves trade-in and enemy price formulas
+ok 10 - ship valuation preserves trade-in and enemy price formulas
+  ---
+  duration_ms: 0.572925
+  type: 'test'
+  ...
+# Subtest: ordinary travel encounter classification preserves original thresholds
+ok 11 - ordinary travel encounter classification preserves original thresholds
+  ---
+  duration_ms: 0.318541
+  type: 'test'
+  ...
+# Subtest: travel, police and reputation helpers preserve original baselines
+ok 12 - travel, police and reputation helpers preserve original baselines
+  ---
+  duration_ms: 0.268715
+  type: 'test'
+  ...
+# Subtest: original galaxy constants are available as baseline inputs
+ok 13 - original galaxy constants are available as baseline inputs
+  ---
+  duration_ms: 0.109436
+  type: 'test'
+  ...
+# Subtest: STO PRNG is stable for a fixed seed
+ok 14 - STO PRNG is stable for a fixed seed
+  ---
+  duration_ms: 0.576375
+  type: 'test'
+  ...
+1..14
+# tests 14
+# suites 0
+# pass 14
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 140.342729
