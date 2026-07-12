@@ -1,0 +1,30 @@
+{
+  "name": "@sto/server",
+  "version": "0.1.0",
+  "private": true,
+  "description": "STO Phase 0 Cloudflare Worker — Captain/System Durable Objects vertical slice",
+  "type": "module",
+  "license": "GPL-2.0-or-later",
+  "scripts": {
+    "build": "tsc -p tsconfig.test.json",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "npm run build && node --test test/*.test.mjs",
+    "test:e2e": "playwright test",
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "db:migrate:local": "wrangler d1 migrations apply sto --local",
+    "clean": "rm -rf dist dist-test"
+  },
+  "dependencies": {
+    "@sto/ruleset-phase0-v1": "file:../proposals/rules-kernel/ruleset-phase0-v1"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20260708.1",
+    "@playwright/test": "^1.61.1",
+    "typescript": "^5.6.0",
+    "wrangler": "^4.20.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

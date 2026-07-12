@@ -1,0 +1,40 @@
+{
+  "name": "@sto/ruleset-phase0-v1",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Executable STO Phase 0 rules package (ruleset-phase0-v1) layered over the PalmOS baseline",
+  "type": "module",
+  "license": "GPL-2.0-or-later",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "src",
+    "test",
+    "README.md",
+    "tsconfig.json"
+  ],
+  "sideEffects": false,
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "npm run build && node --test test/*.test.mjs",
+    "simulate": "npm run build && node dist/simulation/cli.js",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@sto/original-baseline-rules": "file:../space-trader-ruleset"
+  },
+  "devDependencies": {
+    "@types/node": "^26.1.1",
+    "typescript": "^5.6.0"
+  }
+}

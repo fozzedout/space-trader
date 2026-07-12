@@ -1,9 +1,20 @@
 # Design Document: Multiplayer Space Trader
 
 **Working title:** Space Trader Online (STO)  
-**Status:** Phase 0 build-ready design v0.5  
+**Status:** Phase 0 build-ready design v0.6  
 **Platform:** Cloudflare Workers, Durable Objects, D1, Cron Triggers / Durable Object alarms  
 **Client:** Mobile-friendly web client, preserving the original game's low-graphics ethos
+**Companion:** `proposals/space-trader-ux.md` — user flow and client UX for every Phase 0 mechanic
+
+### Revision v0.6
+
+This revision closes the client-surface gaps identified by the UX coverage matrix (`proposals/space-trader-ux.md` §12.1):
+
+- companion-offer delivery through the System DO docked roster (G1);
+- memory-fact to canned-dialogue mapping and encounter payload rules (G2);
+- captain handle selection, uniqueness, and filtering at creation (G3);
+- captain epilogue summary projection and query shape (G4);
+- encounter-claim notification contract for clients between travel ticks (G5).
 
 ### Revision v0.5
 
@@ -175,6 +186,20 @@ The System DO uses an idempotent two-captain claim protocol:
 The `encounter_id` is derived deterministically from the system, route area, global tick, and selected captain IDs. This prevents duplicate encounter creation after retries or restarts.
 
 This prevents double matching and ensures that partial failures cannot leave a captain permanently claimed.
+
+### 4.4.1 Claim notification to clients
+
+A captain may be claimed while waiting between approach ticks, not only on the tick that advances. The client therefore cannot rely on travel-advance responses alone.
+
+Phase 0 notification contract:
+
+1. A successful claim updates the Captain DO to `ENCOUNTER_CLAIMED` and sets `active_encounter_id` before the Encounter DO enters `CONTACT`.
+2. The captain view always includes `lifecycle_state`, `active_encounter_id`, and — once the encounter has entered `CONTACT` — the encounter view endpoint for that id.
+3. The client discovers claims by polling the captain view at a fixed interval while `TRAVELLING` or `ENCOUNTER_CLAIMED`. The Phase 0 default interval is one second.
+4. Poll interval, payload shape, and response timing are identical regardless of whether the other participant is human or NPC. No push channel, early wake, or delayed wake may differ by controller type.
+5. A later phase may add a push channel; any push must still deliver the same captain-view fields and must not encode controller type in delivery latency.
+
+Matching itself remains server-driven. Clients never submit route areas, global ticks, or match requests.
 
 ### 4.5 Interrupted travel
 
@@ -705,16 +730,30 @@ These values are tuning defaults, not final balance.
 
 ### 8.2 Memory facts
 
-Each pair may retain up to five notable direct facts, such as:
+Each pair may retain up to five notable direct facts. Facts are typed keys, not free text. The Phase 0 fact types are:
 
-- attacked me near Regulas;
-- surrendered without a fight;
-- gave me a favourable deal;
-- travelled with me;
-- destroyed my ship;
-- rescued my escape pod.
+- `ATTACKED_ME` — with optional system context;
+- `SURRENDERED_WITHOUT_FIGHT`;
+- `FAVOURABLE_DEAL`;
+- `TRAVELLED_WITH_ME`;
+- `DESTROYED_MY_SHIP`;
+- `RESCUED_MY_POD`.
 
 Facts support canned dialogue and later LLM context. The numeric hostility score drives current behaviour.
+
+#### 8.2.1 Fact-to-dialogue mapping
+
+The versioned rules package defines a deterministic mapping from fact type, relationship band, and the speaker's public disposition band to one or more canned `messageKey` values in the approved message banks (aggressive / neutral / passive).
+
+Selection rules:
+
+1. When an NPC (or proxy) chooses `HAIL`, the `decide()` function may attach at most one `messageKey`.
+2. If one or more retained facts are eligible for the current phase and relationship band, the ruleset selects among those keys using the encounter seed and RNG position.
+3. If no fact-derived key is eligible, the ruleset falls back to the ordinary profile-band message bank.
+4. The encounter payload delivers only the chosen `messageKey` and its rendered canned text. It never delivers raw fact records, hostility scores, or any other private memory field.
+5. A human player viewing the opponent card may see only the boolean "you have met before" derived from whether any direct history exists; individual facts are never listed to the other captain.
+
+This keeps dialogue expressive without creating an information-parity leak.
 
 ### 8.3 Decay
 
@@ -754,7 +793,6 @@ Betrayal includes deliberately attacking a friendly travelling companion or simi
 
 Strongly favourable NPCs may offer to travel together. Permanent friends always offer when the route conditions match.
 
-- The NPC mentions its intended destination diegetically.
 - The option exists only when both captains intend to travel to the same system.
 - The agreement lasts for one journey only.
 - Accepting is relationship-neutral because both captains benefit.
@@ -762,6 +800,19 @@ Strongly favourable NPCs may offer to travel together. Permanent friends always 
 - Police and other non-hostile captain encounters are not necessarily reduced.
 - Combat remains one-on-one in Phase 0.
 - Attacking the companion is a major betrayal.
+
+#### 8.6.1 Companion-offer delivery
+
+Phase 0 does not invent out-of-encounter messaging. Companion offers are delivered through the destination System DO's docked roster while both captains are docked in the same system:
+
+1. An eligible NPC that has already chosen its next destination under ambient simulation (section 8.7) may register a short-lived companion offer on that System DO: `{ offer_id, npc_captain_id, destination_system_id, expires_at }`.
+2. Permanent friends register an offer whenever their intended destination matches a legal destination for the human captain in that system. Strongly favourable (non-locked) NPCs register with the ruleset's provisional probability when the destinations match.
+3. The Departures view queries the System DO for offers whose `destination_system_id` is in the requesting captain's fuel range and whose relationship with the requester is favourable or permanently friendly. The query returns only public captain fields plus the destination; it never returns controller type or private hostility scores.
+4. Accepting an offer creates the `travel_group_id` on both Captain DOs when the human confirms departure to that destination. Declining or ignoring leaves no relationship penalty.
+5. An offer expires at `expires_at`, when the NPC departs alone, when either captain leaves the system, or when the NPC becomes ineligible (destroyed, stranded, claimed, or no longer favourable).
+6. Offers are idempotent under `offer_id`. Retries do not create duplicate travel groups.
+
+The UI surfaces the offer diegetically on the Departures tab (see `proposals/space-trader-ux.md` §6.1). The carrier of record is the System DO docked-roster offer, not an encounter hail.
 
 Companion matching rules:
 
@@ -834,6 +885,32 @@ If a captain without an escape-pod package is destroyed:
 - no relationships, behaviour profiles, reputation, or assets transfer to the new identity.
 
 Historical records may retain the old identity internally, but it disappears from active public play in Phase 0.
+
+#### 9.2.1 Epilogue summary
+
+When a human captain reaches `DEAD` or `RETIRED`, the Captain DO writes one idempotent epilogue projection to D1 under the captain id. The projection is the sole player-facing history summary for that identity:
+
+```text
+captain_epilogue(
+  captain_id,
+  handle,
+  created_at,
+  ended_at,
+  end_reason,          -- DEAD | RETIRED
+  peak_net_worth,      -- carried + bank - debt, high-water mark
+  final_net_worth,
+  systems_visited_count,
+  completed_trades_count,
+  encounters_count,
+  ships_destroyed_count,   -- captains this identity destroyed
+  times_destroyed_count,   -- own ships lost before final end, if any
+  notable_events_json      -- short ordered list of typed highlights
+)
+```
+
+`notable_events_json` is capped (Phase 0 default: five entries) and drawn from already-recorded activity, crime, kill, bounty, rescue, and relationship-extreme events. It never invents narrative and never includes controller-type fields.
+
+The account's next captain-creation flow may read this projection for the epilogue screen. Raw D1 history tables remain available for administration; the epilogue projection is the only required shape for the player client.
 
 ### 9.3 Installed equipment
 
@@ -1178,6 +1255,7 @@ One System DO per solar system owns:
 - stock and price pressure;
 - short-lived economic reservations;
 - local docked roster;
+- short-lived companion-travel offers for docked captains (section 8.6.1);
 - current approach/travel-tick presence;
 - eligible captain encounter selection;
 - local police presence/weighting;
@@ -1228,6 +1306,21 @@ Phase 0 uses the simplest practical account model for the controlled test group:
 - one active captain identity per account.
 
 The authentication provider is replaceable, but gameplay code depends only on the resolved account and captain identity.
+
+### 13.7 Captain creation and handles
+
+When an authenticated account has no active captain — first sign-in, or after the previous captain reached `DEAD` or `RETIRED` — the account may create exactly one new captain.
+
+Handle rules:
+
+- The player chooses a handle at creation. It is permanent for that captain identity and cannot be changed.
+- Handles are unique among all non-deleted captain identities in the galaxy (active, retired, and dead). Uniqueness is enforced by a D1 unique constraint on the normalised handle.
+- Normalisation for uniqueness is case-insensitive trim. Display preserves the player's chosen casing.
+- Allowed characters: Unicode letters, digits, spaces, hyphens, and underscores; length 3–24 inclusive after trim.
+- The server rejects empty, too-short, too-long, and disallowed-character handles. Phase 0 applies a small deny-list of reserved or abusive strings; rejected handles return a generic invalid-handle error without revealing whether the string was reserved or taken when that distinction would aid enumeration of active players — "taken" may be returned for uniqueness collisions, "invalid" for format and deny-list failures.
+- NPC handles are allocated from a seeded name table at NPC creation and obey the same uniqueness constraint.
+
+Creation also assigns the fixed starting package (basic ship, starting credits, starting system) under an idempotent `operation_id`. The client cannot customise the starting package in Phase 0.
 
 ---
 
@@ -1437,6 +1530,11 @@ The STO rules package must explicitly define:
 - shared stock and pressure;
 - the explicit price function, progressive order pricing, and recovery formulas;
 - travel-tick captain matching and companion travel groups;
+- companion-offer registration and docked-roster query rules;
+- claim-notification polling contract for travelling clients;
+- memory-fact types and fact-to-canned-dialogue mapping;
+- captain handle uniqueness and creation package;
+- captain epilogue summary projection;
 - proxy takeover;
 - behaviour-profile movement;
 - relationship movement and decay;
@@ -1636,6 +1734,14 @@ wreck_pool(
   recovery_due_at INTEGER NULL,
   expires_at INTEGER
 );
+
+companion_offers(
+  offer_id TEXT PRIMARY KEY,
+  npc_captain_id TEXT,
+  destination_system_id TEXT,
+  expires_at INTEGER,
+  created_at INTEGER
+);
 ```
 
 ### 18.3 Encounter DO local storage
@@ -1717,11 +1823,14 @@ crime_events(...);
 kill_events(...);
 bounty_events(...);
 relationship_projection(...);
+captain_epilogue(...); -- section 9.2.1; written once at DEAD or RETIRED
 news(...);
 seasons(...);
 ```
 
 The final schema may vary, but authority boundaries must not.
+
+Handle uniqueness for section 13.7 is enforced on the captains projection (or a dedicated handles table) with a unique normalised-handle column. Companion offers (section 8.6.1) are System DO local state and need not be projected to D1 unless analytics require it.
 
 ---
 
@@ -1886,7 +1995,10 @@ The following are intentionally not final and should be adjusted through simulat
 - police contact-type selection weights, inspection fines, and confiscation penalties;
 - ordinary NPC action weights, demand sizing, offer pricing bounds, and surrender-claim fractions per profile band;
 - rational-outmatch strength threshold;
-- encounter probabilities and random weights.
+- encounter probabilities and random weights;
+- travelling captain-view poll interval for claim discovery (section 4.4.1 default: one second);
+- companion-offer lifetime and strongly-favourable offer probability;
+- epilogue notable-event cap (section 9.2.1 default: five).
 
 These values do not block implementation because their interfaces and ownership are now defined. Their initial executable values are pinned in `ruleset-phase0-v1` (section 16.5).
 

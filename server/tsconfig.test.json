@@ -1,0 +1,31 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": true,
+    "skipLibCheck": true,
+    "outDir": "dist-test",
+    "rootDir": "src",
+    "declaration": false,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true
+  },
+  "include": [
+    "src/d1-shim.d.ts",
+    "src/hash.ts",
+    "src/auth.ts",
+    "src/human-captain.ts",
+    "src/scheduled-tasks.ts",
+    "src/projections.ts",
+    "src/ambient-npc.ts",
+    "src/system-authority.ts",
+    "src/captain-authority.ts",
+    "src/encounter-authority.ts",
+    "src/encounter-claim.ts",
+    "src/settlement-effects.ts",
+    "src/settlement-delivery.ts",
+    "src/public-routes.ts",
+    "src/galaxy/bootstrap.ts"
+  ]
+}

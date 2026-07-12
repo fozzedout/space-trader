@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Space Trader Online</title>
+  <link rel="stylesheet" href="/styles.css" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=Orbitron:wght@600;700&display=swap" rel="stylesheet" />
+</head>
+<body>
+  <div class="sky" aria-hidden="true"></div>
+  <main class="shell">
+    <header class="brand">
+      <p class="brand-mark">STO</p>
+      <h1>Space Trader Online</h1>
+      <p class="tagline">Dock. Trade. Jump. Survive.</p>
+    </header>
+
+    <section id="auth" class="panel">
+      <p class="lede">Sign in with an email magic link (Phase 0 session cookie).</p>
+      <label class="field">Email
+        <input id="auth-email" type="email" autocomplete="email" placeholder="you@example.com" />
+      </label>
+      <button type="button" id="btn-request-link" class="primary">Send magic link</button>
+      <label class="field">Dev token
+        <input id="auth-token" type="text" placeholder="paste token from response" />
+      </label>
+      <button type="button" id="btn-verify" class="secondary">Verify &amp; enter</button>
+      <p id="auth-status" class="status" role="status"></p>
+    </section>
+
+    <section id="boot" class="panel hidden">
+      <p class="lede">Initialize systems and ambient NPCs (development only).</p>
+      <button type="button" id="btn-boot" class="primary">Initialize galaxy</button>
+      <p id="boot-status" class="status" role="status"></p>
+    </section>
+
+    <section id="game" class="hidden">
+      <div class="status-bar" id="status-bar"></div>
+
+      <nav class="tabs" role="tablist">
+        <button type="button" data-tab="dock" class="tab active" role="tab">Dock</button>
+        <button type="button" data-tab="market" class="tab" role="tab">Market</button>
+        <button type="button" data-tab="travel" class="tab" role="tab">Travel</button>
+        <button type="button" data-tab="ship" class="tab" role="tab">Ship</button>
+      </nav>
+
+      <section id="tab-dock" class="panel tab-panel">
+        <h2>Orbital dock</h2>
+        <p id="dock-summary" class="lede"></p>
+        <ul id="cargo-list" class="list"></ul>
+        <div class="stack">
+          <button type="button" id="btn-refuel" class="secondary">Refuel</button>
+          <button type="button" id="btn-repair" class="secondary">Repair hull</button>
+        </div>
+      </section>
+
+      <section id="tab-market" class="panel tab-panel hidden">
+        <h2>Commodity exchange</h2>
+        <div id="market-rows" class="market"></div>
+      </section>
+
+      <section id="tab-travel" class="panel tab-panel hidden">
+        <h2>Hyperspace</h2>
+        <p class="lede">Choose a destination, then advance approach ticks.</p>
+        <div id="destinations" class="stack"></div>
+        <div id="travel-progress" class="stack"></div>
+        <div id="wreck-list" class="wreck-list"></div>
+      </section>
+
+      <section id="tab-ship" class="panel tab-panel hidden">
+        <h2>Ship &amp; standing</h2>
+        <dl id="ship-stats" class="stats"></dl>
+        <div class="stack">
+          <button type="button" id="btn-upgrade" class="secondary">Upgrade to Firefly</button>
+          <button type="button" id="btn-escape-pod" class="secondary">Install escape pod</button>
+          <button type="button" id="btn-retire" class="danger">Retire captain</button>
+          <button type="button" id="btn-logout" class="secondary">Log out</button>
+        </div>
+      </section>
+
+      <section id="encounter" class="panel encounter hidden">
+        <h2>Encounter</h2>
+        <p id="encounter-meta" class="lede"></p>
+        <div id="encounter-opp" class="opp"></div>
+        <div id="encounter-actions" class="actions"></div>
+        <p id="encounter-status" class="status" role="status"></p>
+      </section>
+
+      <section id="police-encounter" class="panel encounter hidden">
+        <h2>Police</h2>
+        <p id="police-encounter-meta" class="lede"></p>
+        <div id="police-encounter-actions" class="actions"></div>
+        <p id="police-encounter-status" class="status" role="status"></p>
+      </section>
+
+      <p id="toast" class="toast" role="status" aria-live="polite"></p>
+    </section>
+  </main>
+  <script src="/app.js" type="module"></script>
+</body>
+</html>
